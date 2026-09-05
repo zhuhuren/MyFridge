@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#4CAF50">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <title>MyFridge</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="style.css">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+</head>
+<body>
+  <div id="app">
+    
+    <!-- Header -->
+    <header id="main-header">
+      <h1 class="title">MyFridge</h1>
+      <div id="header-location">Fridge</div>
+    </header>
+    
+    <!-- Main Content Area -->
+    <main id="main-content">
+      
+      <!-- VIEW: Inventory -->
+      <div id="view-inventory">
+        <div class="sticky-controls">
+          <div class="segmented-control" id="inventory-locations">
+            <button class="segment active" data-loc="fridge">Fridge</button>
+            <button class="segment" data-loc="freezer">Freezer</button>
+            <button class="segment" data-loc="pantry">Pantry</button>
+          </div>
+          
+          <div class="search-sort-container">
+            <div class="search-bar">
+              <span class="search-icon">🔍</span>
+              <input type="text" id="search-input" placeholder="Search items...">
+            </div>
+            <select id="sort-select">
+              <option value="expiry_asc">Expiry ↑</option>
+              <option value="name_asc">Name</option>
+              <option value="date_added_desc">Date Added</option>
+              <option value="category_asc">Category</option>
+            </select>
+          </div>
+          
+          <div class="category-chips-container" id="category-chips">
+            <!-- Rendered via JS -->
+          </div>
+        </div>
+        
+        <div class="items-list" id="inventory-list">
+          <!-- Rendered via JS -->
+        </div>
+        
+        <div id="inventory-empty" class="empty-state" style="display:none">
+          <p>No items found.</p>
+        </div>
+        
+        <button class="fab" id="fab-add">+</button>
+      </div>
+      
+      <!-- VIEW: Expiring -->
+      <div id="view-expiring" style="display:none">
+        <div id="expiring-expired" class="expiring-section">
+          <h2>Expired</h2>
+          <div class="items-list"></div>
+        </div>
+        <div id="expiring-next-3" class="expiring-section">
+          <h2>Next 3 Days</h2>
+          <div class="items-list"></div>
+        </div>
+        <div id="expiring-next-7" class="expiring-section">
+          <h2>Next 7 Days</h2>
+          <div class="items-list"></div>
+        </div>
+        <div id="expiring-empty" class="empty-state" style="display:none">
+          <p>No items expiring soon.</p>
+        </div>
+      </div>
+      
+      <!-- VIEW: Stats -->
+      <div id="view-stats" style="display:none">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <h3>Total Tracked</h3>
+            <p id="stat-total">0</p>
+          </div>
+          <div class="stat-card">
+            <h3>Consumed</h3>
+            <p id="stat-consumed">0</p>
+          </div>
+          <div class="stat-card">
+            <h3>Wasted</h3>
+            <p id="stat-wasted">0</p>
+          </div>
+          <div class="stat-card">
+            <h3>Waste %</h3>
+            <p id="stat-waste-percent">0%</p>
+          </div>
+        </div>
+        
+        <div class="chart-container">
+          <h3>Last 6 Months</h3>
+          <div class="bar-chart" id="stats-chart">
+            <!-- Rendered via JS -->
+          </div>
+          <div class="chart-legend">
+            <span class="legend-item"><span class="legend-color consumed"></span>Consumed</span>
+            <span class="legend-item"><span class="legend-color wasted"></span>Wasted</span>
+          </div>
+        </div>
+      </div>
+      
+    </main>
+    
+    <!-- Bottom Navigation Bar -->
+    <nav id="bottom-nav">
+      <button class="nav-btn active" data-view="inventory">
+        <span class="nav-icon">📦</span>
+        <span class="nav-label">Inventory</span>
+      </button>
+      <button class="nav-btn" data-view="expiring">
+        <span class="nav-icon">⏰</span>
+        <span class="nav-label">Expiring</span>
+      </button>
+      <button class="nav-btn" data-view="stats">
+        <span class="nav-icon">📊</span>
+        <span class="nav-label">Stats</span>
+      </button>
+    </nav>
+  </div>
+  
+  <!-- MODAL: Scanner -->
+  <div id="modal-scanner" class="modal" style="display:none">
+    <div class="modal-content full-screen">
+      <div class="modal-header">
+        <h2>Scan Barcode</h2>
+        <button class="close-btn" id="close-scanner">×</button>
+      </div>
+      <div id="scanner-container"></div>
+      <div class="scanner-actions">
+        <label class="btn btn-secondary">
+          Take Photo Instead
+          <input type="file" id="scanner-file" accept="image/*" capture="environment" style="display:none">
+        </label>
+        <button class="btn btn-text" id="manual-entry-btn">Enter Manually</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- MODAL: Add/Edit Item -->
+  <div id="modal-item-form" class="modal" style="display:none">
+    <div class="modal-content slide-up">
+      <div class="modal-header">
+        <h2 id="item-form-title">Add Item</h2>
+        <button class="close-btn" id="close-item-form">×</button>
+      </div>
+      <div class="form-body">
+        <div id="item-image-preview" style="display:none">
+          <img src="" alt="Product Image">
+        </div>
+        
+        <div class="form-group">
+          <label for="item-name">Name</label>
+          <input type="text" id="item-name" required placeholder="e.g. Milk">
+        </div>
+        
+        <div class="form-group">
+          <label>Storage Location</label>
+          <div class="segmented-control" id="form-location">
+            <button class="segment active" data-val="fridge">Fridge</button>
+            <button class="segment" data-val="freezer">Freezer</button>
+            <button class="segment" data-val="pantry">Pantry</button>
+          </div>
+        </div>
+        
+        <div class="form-group">
+          <label for="item-category">Category</label>
+          <select id="item-category"></select>
+        </div>
+        
+        <div class="form-group">
+          <label>Quantity</label>
+          <div class="quantity-stepper">
+            <button id="qty-minus" class="stepper-btn">-</button>
+            <input type="number" id="item-quantity" value="1" min="1">
+            <button id="qty-plus" class="stepper-btn">+</button>
+          </div>
+        </div>
+        
+        <div class="form-group">
+          <label for="item-expiry">Expiry Date (optional)</label>
+          <input type="date" id="item-expiry">
+        </div>
+        
+        <button class="btn btn-primary" id="save-item-btn">Save</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- MODAL: Remove Item -->
+  <div id="modal-remove" class="modal" style="display:none">
+    <div class="modal-content centered-dialog">
+      <h2>What happened to <span id="remove-item-name">this item</span>?</h2>
+      <div class="remove-actions">
+        <button class="btn btn-success btn-large" id="btn-consumed">✅ Consumed</button>
+        <button class="btn btn-danger btn-large" id="btn-wasted">🗑️ Wasted</button>
+        <button class="btn btn-text" id="btn-cancel-remove">Cancel</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Toast notification container -->
+  <div id="toast-container"></div>
+  
+  <script src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js')
+          .then(reg => console.log('SW registered', reg.scope))
+          .catch(err => console.log('SW fail', err));
+      });
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,258 @@
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
+
+const jsonResponse = (data, status = 200) => new Response(JSON.stringify(data), {
+  status,
+  headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+});
+
+const errorResponse = (message, status = 500) => jsonResponse({ error: message }, status);
+
+export default {
+  async fetch(request, env, ctx) {
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { headers: corsHeaders });
+    }
+
+    const url = new URL(request.url);
+    const path = url.pathname;
+    
+    try {
+      if (path === '/api/items' && request.method === 'GET') {
+        return await handleGetItems(request, env.DB, url);
+      }
+      if (path === '/api/items' && request.method === 'POST') {
+        return await handlePostItem(request, env.DB);
+      }
+      if (path.startsWith('/api/items/') && request.method === 'GET') {
+        const id = path.split('/')[3];
+        if (id) return await handleGetItem(env.DB, id);
+      }
+      if (path.startsWith('/api/items/') && request.method === 'PUT') {
+        const id = path.split('/')[3];
+        if (id) return await handlePutItem(request, env.DB, id);
+      }
+      if (path.startsWith('/api/items/') && request.method === 'DELETE') {
+        const id = path.split('/')[3];
+        if (id) return await handleDeleteItem(request, env.DB, id);
+      }
+      if (path.startsWith('/api/lookup/') && request.method === 'GET') {
+        const barcode = path.split('/')[3];
+        if (barcode) return await handleLookup(barcode);
+      }
+      if (path === '/api/stats' && request.method === 'GET') {
+        return await handleStats(env.DB);
+      }
+      if (path === '/api/expiring' && request.method === 'GET') {
+        return await handleExpiring(env.DB);
+      }
+      
+      return errorResponse('Not found', 404);
+    } catch (e) {
+      console.error(e);
+      return errorResponse(e.message, 500);
+    }
+  }
+};
+
+async function handleGetItems(request, db, url) {
+  const location = url.searchParams.get('location');
+  const category = url.searchParams.get('category');
+  const search = url.searchParams.get('search');
+  const sort = url.searchParams.get('sort') || 'date_added_desc';
+
+  let query = 'SELECT * FROM items WHERE 1=1';
+  const params = [];
+
+  if (location) {
+    query += ' AND location = ?';
+    params.push(location);
+  }
+  if (category) {
+    query += ' AND category = ?';
+    params.push(category);
+  }
+  if (search) {
+    query += ' AND name LIKE ?';
+    params.push(`%${search}%`);
+  }
+
+  const sortMap = {
+    'expiry_asc': 'expiry_date ASC',
+    'expiry_desc': 'expiry_date DESC',
+    'name_asc': 'name ASC',
+    'name_desc': 'name DESC',
+    'date_added_desc': 'date_added DESC',
+    'category_asc': 'category ASC'
+  };
+  
+  const orderBy = sortMap[sort] || sortMap['date_added_desc'];
+  query += ` ORDER BY ${orderBy}`;
+
+  const { results } = await db.prepare(query).bind(...params).all();
+  return jsonResponse(results);
+}
+
+async function handleGetItem(db, id) {
+  const item = await db.prepare('SELECT * FROM items WHERE id = ?').bind(id).first();
+  if (!item) return errorResponse('Item not found', 404);
+  return jsonResponse(item);
+}
+
+async function handlePostItem(request, db) {
+  const body = await request.json();
+  const { name, barcode, category = 'Other', location = 'fridge', quantity = 1, expiry_date, image_url } = body;
+  if (!name) return errorResponse('Name is required', 400);
+
+  const date_added = new Date().toISOString().split('T')[0];
+
+  const result = await db.prepare(
+    'INSERT INTO items (name, barcode, category, location, quantity, date_added, expiry_date, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *'
+  ).bind(name, barcode || null, category, location, quantity, date_added, expiry_date || null, image_url || null).first();
+  
+  return jsonResponse(result, 201);
+}
+
+async function handlePutItem(request, db, id) {
+  const body = await request.json();
+  
+  const currentItem = await db.prepare('SELECT * FROM items WHERE id = ?').bind(id).first();
+  if (!currentItem) return errorResponse('Item not found', 404);
+
+  const updates = [];
+  const params = [];
+
+  ['name', 'category', 'location', 'quantity', 'expiry_date', 'image_url'].forEach(field => {
+    if (body[field] !== undefined) {
+      updates.push(`${field} = ?`);
+      params.push(body[field]);
+    }
+  });
+
+  if (updates.length === 0) return jsonResponse(currentItem);
+
+  params.push(id);
+  const result = await db.prepare(
+    `UPDATE items SET ${updates.join(', ')} WHERE id = ? RETURNING *`
+  ).bind(...params).first();
+
+  return jsonResponse(result);
+}
+
+async function handleDeleteItem(request, db, id) {
+  const body = await request.json();
+  const reason = body.reason;
+  if (!reason || !['consumed', 'wasted'].includes(reason)) {
+    return errorResponse('Valid reason (consumed/wasted) is required', 400);
+  }
+
+  const item = await db.prepare('SELECT * FROM items WHERE id = ?').bind(id).first();
+  if (!item) return errorResponse('Item not found', 404);
+
+  await db.batch([
+    db.prepare('INSERT INTO item_log (item_name, category, location, reason) VALUES (?, ?, ?, ?)').bind(item.name, item.category, item.location, reason),
+    db.prepare('DELETE FROM items WHERE id = ?').bind(id)
+  ]);
+
+  return jsonResponse({ success: true });
+}
+
+async function handleLookup(barcode) {
+  const url = `https://world.openfoodfacts.org/api/v2/product/${barcode}.json`;
+  
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'MyFridge/1.0 (https://github.com/myfridge)' }
+    });
+    
+    if (!res.ok) return jsonResponse({ found: false });
+    
+    const data = await res.json();
+    if (!data || data.status !== 1) return jsonResponse({ found: false });
+    
+    const p = data.product;
+    const rawCategories = p.categories_tags || [];
+    
+    let category = 'Other';
+    // Simple category mapping logic
+    const catStr = rawCategories.join(' ').toLowerCase();
+    if (catStr.includes('dairy') || catStr.includes('milk') || catStr.includes('cheese')) category = 'Dairy';
+    else if (catStr.includes('meat') || catStr.includes('fish') || catStr.includes('poultry')) category = 'Meat & Fish';
+    else if (catStr.includes('fruit') || catStr.includes('vegetable')) category = 'Produce';
+    else if (catStr.includes('bread') || catStr.includes('cereal') || catStr.includes('bakery')) category = 'Bakery & Grains';
+    else if (catStr.includes('frozen')) category = 'Frozen';
+    else if (catStr.includes('canned')) category = 'Canned & Jarred';
+    else if (catStr.includes('beverage') || catStr.includes('drink')) category = 'Beverages';
+    else if (catStr.includes('snack') || catStr.includes('sweet') || catStr.includes('candy')) category = 'Snacks';
+    else if (catStr.includes('condiment') || catStr.includes('sauce') || catStr.includes('spice')) category = 'Condiments';
+    
+    return jsonResponse({
+      found: true,
+      name: p.product_name || p.product_name_en || 'Unknown',
+      category: category,
+      image_url: p.image_url || p.image_front_url || null
+    });
+  } catch (err) {
+    return jsonResponse({ found: false });
+  }
+}
+
+async function handleStats(db) {
+  const summary = await db.prepare(
+    `SELECT reason, COUNT(*) as count FROM item_log GROUP BY reason`
+  ).all();
+  
+  let total_consumed = 0;
+  let total_wasted = 0;
+  for (const row of summary.results) {
+    if (row.reason === 'consumed') total_consumed = row.count;
+    if (row.reason === 'wasted') total_wasted = row.count;
+  }
+
+  const monthsData = await db.prepare(`
+    SELECT strftime('%Y-%m', removed_at) as month, reason, COUNT(*) as count 
+    FROM item_log 
+    WHERE removed_at >= datetime('now', '-6 months')
+    GROUP BY month, reason
+    ORDER BY month ASC
+  `).all();
+
+  const monthMap = {};
+  for (const row of monthsData.results) {
+    if (!monthMap[row.month]) monthMap[row.month] = { month: row.month, consumed: 0, wasted: 0 };
+    if (row.reason === 'consumed') monthMap[row.month].consumed = row.count;
+    if (row.reason === 'wasted') monthMap[row.month].wasted = row.count;
+  }
+
+  return jsonResponse({
+    total_consumed,
+    total_wasted,
+    by_month: Object.values(monthMap)
+  });
+}
+
+async function handleExpiring(db) {
+  const query = `
+    SELECT * FROM items 
+    WHERE expiry_date IS NOT NULL 
+    AND expiry_date <= date('now', '+7 days')
+    ORDER BY expiry_date ASC
+  `;
+  
+  const { results } = await db.prepare(query).all();
+  
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  
+  const processed = results.map(item => {
+    const exp = new Date(item.expiry_date);
+    const diffTime = exp - today;
+    const days_remaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return { ...item, days_remaining };
+  });
+
+  return jsonResponse(processed);
+}

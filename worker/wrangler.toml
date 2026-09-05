@@ -1,0 +1,8 @@
+name = "myfridge-api"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "myfridge-db"
+database_id = "9675008d-a831-4910-b88f-12d6aee5c984"
