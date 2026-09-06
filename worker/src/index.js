@@ -46,7 +46,7 @@ export default {
       }
       if (path.startsWith('/api/lookup/') && request.method === 'GET') {
         const barcode = path.split('/')[3];
-        if (barcode) return await handleLookup(barcode);
+        if (barcode) return await handleLookup(env.DB, barcode);
       }
       if (path === '/api/stats' && request.method === 'GET') {
         return await handleStats(env.DB);
@@ -122,6 +122,10 @@ async function handlePostItem(request, db) {
     'INSERT INTO items (name, barcode, category, location, quantity, initial_quantity, unit, unit_cost, date_added, expiry_date, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *'
   ).bind(name, barcode || null, category, location, quantity, quantity, unit, unit_cost, final_date_added, expiry_date || null, image_url || null).first();
   
+  if (barcode) {
+    await db.prepare('INSERT OR REPLACE INTO user_products (barcode, name, category, image_url) VALUES (?, ?, ?, ?)').bind(barcode, name, category, image_url || null).run();
+  }
+  
   return jsonResponse(result, 201);
 }
 
@@ -134,7 +138,7 @@ async function handlePutItem(request, db, id) {
   const updates = [];
   const params = [];
 
-  ['name', 'category', 'location', 'quantity', 'unit', 'unit_cost', 'expiry_date', 'image_url'].forEach(field => {
+  ['name', 'category', 'location', 'quantity', 'unit', 'unit_cost', 'expiry_date', 'image_url', 'barcode'].forEach(field => {
     if (body[field] !== undefined) {
       updates.push(`${field} = ?`);
       params.push(body[field]);
@@ -144,11 +148,15 @@ async function handlePutItem(request, db, id) {
   if (updates.length === 0) return jsonResponse(currentItem);
 
   params.push(id);
-  const result = await db.prepare(
+  const updatedItem = await db.prepare(
     `UPDATE items SET ${updates.join(', ')} WHERE id = ? RETURNING *`
   ).bind(...params).first();
 
-  return jsonResponse(result);
+  if (updatedItem.barcode) {
+    await db.prepare('INSERT OR REPLACE INTO user_products (barcode, name, category, image_url) VALUES (?, ?, ?, ?)').bind(updatedItem.barcode, updatedItem.name, updatedItem.category, updatedItem.image_url || null).run();
+  }
+
+  return jsonResponse(updatedItem);
 }
 
 async function handleLogItem(request, db, id) {
@@ -210,7 +218,20 @@ async function handleDeleteItem(request, db, id) {
   return jsonResponse({ success: true });
 }
 
-async function handleLookup(barcode) {
+async function handleLookup(db, barcode) {
+  // 1. Check our custom local cache first!
+  const cached = await db.prepare('SELECT * FROM user_products WHERE barcode = ?').bind(barcode).first();
+  if (cached) {
+    return jsonResponse({
+      found: true,
+      name: cached.name,
+      category: cached.category,
+      image_url: cached.image_url,
+      source: 'local'
+    });
+  }
+
+  // 2. Fallback to Open Food Facts
   const url = `https://world.openfoodfacts.org/api/v2/product/${barcode}.json`;
   
   try {
@@ -346,8 +367,8 @@ async function handleReport(request, db) {
   const start = url.searchParams.get('start');
   const end = url.searchParams.get('end');
 
-  const startDate = start ? ` 00:00:00` : '2000-01-01 00:00:00';
-  const endDate = end ? ` 23:59:59` : '2999-12-31 23:59:59';
+  const startDate = start ? `${start} 00:00:00` : '2000-01-01 00:00:00';
+  const endDate = end ? `${end} 23:59:59` : '2999-12-31 23:59:59';
 
   const query = `SELECT item_name, unit, reason, SUM(logged_quantity) as total_qty, SUM(cost_value) as total_cost FROM item_log WHERE removed_at >= ? AND removed_at <= ? GROUP BY item_name, unit, reason ORDER BY item_name ASC`;
   const { results } = await db.prepare(query).bind(startDate, endDate).all();

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'myfridge-v11';
+const CACHE_NAME = 'myfridge-v12';
 const ASSETS = [
   '/MyFridge/',
   '/MyFridge/index.html',

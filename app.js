@@ -173,17 +173,29 @@ async function stopScanning() {
   document.getElementById('modal-scanner').style.display = 'none';
 }
 
+function openScanner() {
+  document.getElementById('modal-scanner').style.display = 'flex';
+  initScanner();
+  startScanning();
+}
+
+function stopScannerAndClose() {
+  stopScanning();
+  document.getElementById('modal-scanner').style.display = 'none';
+}
+
 async function onScanSuccess(decodedText) {
   await stopScanning();
   showToast('Barcode scanned! Looking up product...');
+  state.scannedBarcode = decodedText;
 
   const productInfo = await lookupBarcode(decodedText);
   if (productInfo && productInfo.found) {
     showToast(`Found: ${productInfo.name}`);
     openItemForm(null, productInfo);
   } else {
-    showToast('Product not in database. Enter details manually.');
-    openItemForm(null, { name: '', category: 'Other', image_url: null });
+    showToast('Product not found in database. Please enter details.', 'error');
+    openItemForm(null, null);
   }
 }
 
@@ -191,18 +203,18 @@ async function handlePhotoFallback(event) {
   const file = event.target.files[0];
   if (!file) return;
 
-  initScanner();
   try {
     const decodedText = await Html5Qrcode.scanFile(file, true);
     await stopScanning();
     showToast('Barcode scanned! Looking up product...');
+    state.scannedBarcode = decodedText;
     const productInfo = await lookupBarcode(decodedText);
     if (productInfo && productInfo.found) {
       showToast(`Found: ${productInfo.name}`);
       openItemForm(null, productInfo);
     } else {
-      showToast('Product not in database. Enter details manually.');
-      openItemForm(null, { name: '', category: 'Other', image_url: null });
+      showToast('Product not found in database. Please enter details.', 'error');
+      openItemForm(null, null);
     }
   } catch (err) {
     console.error('Error scanning file:', err);
@@ -211,6 +223,15 @@ async function handlePhotoFallback(event) {
     openItemForm();
   }
   event.target.value = '';
+}
+
+function closeItemForm() {
+  document.getElementById('modal-item-form').style.display = 'none';
+  state.editingItem = null;
+  state.scannedBarcode = null;
+  
+  // reset inputs
+  document.getElementById('item-name').value = '';
 }
 
 // =======================
@@ -978,7 +999,8 @@ function setupEvents() {
       quantity: parseFloat(document.getElementById('item-quantity').value || 1),
       unit: document.getElementById('item-unit').value,
       unit_cost: uCost,
-      expiry_date: document.getElementById('item-expiry').value || null
+      expiry_date: document.getElementById('item-expiry').value || null,
+      barcode: state.scannedBarcode || null
     };
 
     // Include EXACT local time in ISO format to satisfy user request
