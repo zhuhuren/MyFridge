@@ -85,17 +85,17 @@ async function updateItem(id, data) {
   }
 }
 
-async function deleteItem(id, reason) {
+async function logItemActivity(id, reason, amount) {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/items/${id}`, {
-      method: 'DELETE',
+    const response = await fetch(`${API_BASE_URL}/api/items/${id}/log`, {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reason })
+      body: JSON.stringify({ action: reason, amount })
     });
     if (!response.ok) throw new Error('Network response was not ok');
     return await response.json();
   } catch (error) {
-    console.error('Error deleting item:', error);
+    console.error('Error logging item:', error);
     throw error;
   }
 }
@@ -118,7 +118,7 @@ async function fetchStats() {
     return await response.json();
   } catch (error) {
     console.error('Error fetching stats:', error);
-    return { total_consumed: 0, total_wasted: 0, by_month: [] };
+    return null;
   }
 }
 
@@ -208,7 +208,6 @@ async function handlePhotoFallback(event) {
     await stopScanning();
     openItemForm();
   }
-  // Reset file input so the same file can be selected again
   event.target.value = '';
 }
 
@@ -235,12 +234,6 @@ function getExpiryStatus(expiryDateStr) {
   if (daysLeft <= 3) return { status: 'urgent', daysLeft, text: `${daysLeft} day${daysLeft > 1 ? 's' : ''} left` };
   if (daysLeft <= 7) return { status: 'warning', daysLeft, text: `${daysLeft} days left` };
   return { status: 'fresh', daysLeft, text: `${daysLeft} days left` };
-}
-
-function formatDate(isoDate) {
-  if (!isoDate) return '';
-  const date = new Date(isoDate + 'T00:00:00');
-  return date.toLocaleDateString();
 }
 
 function showToast(message, type = 'info') {
@@ -303,6 +296,8 @@ function createItemCard(item) {
   card.className = `item-card ${expiryInfo.status}`;
   card.dataset.id = item.id;
 
+  const displayUnit = item.unit || 'pcs';
+
   card.innerHTML = `
     <div class="item-info">
       <div class="item-header">
@@ -310,13 +305,13 @@ function createItemCard(item) {
         <span class="item-category-pill" style="background-color: ${catColor}">${escapeHtml(item.category || 'Other')}</span>
       </div>
       <div class="item-details">
-        <span class="item-qty">Qty: ${item.quantity} · ${item.location}</span>
+        <span class="item-qty">Qty: ${item.quantity} ${displayUnit} · ${item.location}</span>
         <span class="item-expiry-text ${expiryInfo.status}">${expiryInfo.text}</span>
       </div>
     </div>
     <div class="item-actions">
       <button class="icon-btn edit" title="Edit">✏️</button>
-      <button class="icon-btn delete" title="Remove">🗑️</button>
+      <button class="icon-btn delete" title="Log Activity">📝</button>
     </div>
   `;
 
@@ -326,10 +321,10 @@ function createItemCard(item) {
     openItemForm(item.id);
   });
 
-  // Delete button
+  // Log Activity button
   card.querySelector('.icon-btn.delete').addEventListener('click', (e) => {
     e.stopPropagation();
-    openRemoveModal(item.id, item.name);
+    openLogModal(item.id, item.name, item.quantity, item.unit);
   });
 
   return card;
@@ -377,7 +372,6 @@ async function renderExpiring() {
   const next7Section = document.getElementById('expiring-next-7');
   const emptyState = document.getElementById('expiring-empty');
 
-  // Clear and populate
   [expiredSection, next3Section, next7Section].forEach(s => {
     s.querySelector('.items-list').innerHTML = '';
   });
@@ -395,28 +389,54 @@ async function renderExpiring() {
 
 async function renderStats() {
   const stats = await fetchStats();
+  if (!stats) return;
 
-  const totalConsumed = stats.total_consumed || 0;
-  const totalWasted = stats.total_wasted || 0;
-  const total = totalConsumed + totalWasted;
-  const wastePercent = total > 0 ? Math.round((totalWasted / total) * 100) : 0;
+  const totalCostConsumed = stats.total_cost_consumed || 0;
+  const totalCostWasted = stats.total_cost_wasted || 0;
+  const totalPctConsumed = stats.total_pct_consumed || 0;
+  const totalPctWasted = stats.total_pct_wasted || 0;
 
-  document.getElementById('stat-total').textContent = total;
-  document.getElementById('stat-consumed').textContent = totalConsumed;
-  document.getElementById('stat-wasted').textContent = totalWasted;
-  document.getElementById('stat-waste-percent').textContent = wastePercent + '%';
+  // Calculate percentages
+  let wastePercent = 0;
+  let consumePercent = 0;
+  
+  if (totalCostConsumed > 0 || totalCostWasted > 0) {
+    const totalCost = totalCostConsumed + totalCostWasted;
+    wastePercent = Math.round((totalCostWasted / totalCost) * 100);
+    consumePercent = Math.round((totalCostConsumed / totalCost) * 100);
+  } else if (totalPctConsumed > 0 || totalPctWasted > 0) {
+    const totalPct = totalPctConsumed + totalPctWasted;
+    wastePercent = Math.round((totalPctWasted / totalPct) * 100);
+    consumePercent = Math.round((totalPctConsumed / totalPct) * 100);
+  }
+
+  document.getElementById('stat-consumed').textContent = '$' + totalCostConsumed.toFixed(2);
+  document.getElementById('stat-wasted').textContent = '$' + totalCostWasted.toFixed(2);
+  document.getElementById('stat-pct-consumed').textContent = consumePercent + '%';
+  document.getElementById('stat-pct-wasted').textContent = wastePercent + '%';
 
   const chart = document.getElementById('stats-chart');
   chart.innerHTML = '';
 
   const months = stats.by_month || [];
   if (months.length > 0) {
-    const maxVal = Math.max(...months.map(m => Math.max(m.consumed, m.wasted, 1)));
+    // We base the chart heights on costs if they exist, otherwise percentages
+    let useCosts = months.some(m => m.consumed_cost > 0 || m.wasted_cost > 0);
+    
+    let maxVal = 1;
+    if (useCosts) {
+      maxVal = Math.max(...months.map(m => Math.max(m.consumed_cost, m.wasted_cost, 1)));
+    } else {
+      maxVal = Math.max(...months.map(m => Math.max(m.consumed_pct, m.wasted_pct, 1)));
+    }
 
     months.forEach(month => {
-      const consumedHeight = (month.consumed / maxVal) * 100;
-      const wastedHeight = (month.wasted / maxVal) * 100;
-      // Format month label: '2026-09' -> 'Sep'
+      let cVal = useCosts ? month.consumed_cost : month.consumed_pct;
+      let wVal = useCosts ? month.wasted_cost : month.wasted_pct;
+
+      const consumedHeight = (cVal / maxVal) * 100;
+      const wastedHeight = (wVal / maxVal) * 100;
+      
       const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
       const monthIdx = parseInt(month.month.split('-')[1], 10) - 1;
       const label = monthNames[monthIdx] || month.month;
@@ -425,8 +445,8 @@ async function renderStats() {
       col.className = 'chart-column';
       col.innerHTML = `
         <div class="chart-bar-group">
-          <div class="chart-bar consumed" style="height: ${consumedHeight}%"></div>
-          <div class="chart-bar wasted" style="height: ${wastedHeight}%"></div>
+          <div class="chart-bar consumed" style="height: ${consumedHeight}%" title="Consumed: ${cVal.toFixed(2)}"></div>
+          <div class="chart-bar wasted" style="height: ${wastedHeight}%" title="Wasted: ${wVal.toFixed(2)}"></div>
         </div>
         <div class="chart-label">${label}</div>
       `;
@@ -448,7 +468,6 @@ function switchView(viewName) {
     btn.classList.toggle('active', btn.dataset.view === viewName);
   });
 
-  // Update header
   if (viewName === 'inventory') {
     document.getElementById('header-location').textContent =
       state.currentLocation.charAt(0).toUpperCase() + state.currentLocation.slice(1);
@@ -470,13 +489,10 @@ async function openItemForm(itemId = null, prefillData = null) {
   const title = document.getElementById('item-form-title');
   const catSelect = document.getElementById('item-category');
 
-  // Populate categories dropdown
   catSelect.innerHTML = CATEGORIES.map(c => `<option value="${c.name}">${c.emoji} ${c.name}</option>`).join('');
-
   const previewDiv = document.getElementById('item-image-preview');
 
   if (itemId) {
-    // Edit mode
     title.textContent = 'Edit Item';
     const item = state.items.find(i => i.id == itemId) || await fetchItem(itemId);
     if (!item) {
@@ -488,14 +504,14 @@ async function openItemForm(itemId = null, prefillData = null) {
     document.getElementById('item-name').value = item.name;
     document.getElementById('item-category').value = item.category || 'Other';
     document.getElementById('item-quantity').value = item.quantity || 1;
+    document.getElementById('item-unit').value = item.unit || 'pcs';
+    document.getElementById('item-unit-cost').value = item.unit_cost !== null ? item.unit_cost : '';
     document.getElementById('item-expiry').value = item.expiry_date || '';
 
-    // Set location segment
     document.querySelectorAll('#form-location .segment').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.val === item.location);
     });
 
-    // Show image if available
     if (item.image_url) {
       previewDiv.querySelector('img').src = item.image_url;
       previewDiv.style.display = 'block';
@@ -504,21 +520,20 @@ async function openItemForm(itemId = null, prefillData = null) {
     }
 
   } else {
-    // Add mode
     title.textContent = 'Add Item';
     state.editingItem = null;
 
     document.getElementById('item-name').value = prefillData ? (prefillData.name || '') : '';
     document.getElementById('item-category').value = (prefillData && prefillData.category) ? prefillData.category : 'Other';
     document.getElementById('item-quantity').value = '1';
+    document.getElementById('item-unit').value = 'pcs';
+    document.getElementById('item-unit-cost').value = '';
     document.getElementById('item-expiry').value = '';
 
-    // Set default location to current location
     document.querySelectorAll('#form-location .segment').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.val === state.currentLocation);
     });
 
-    // Preview image if barcode lookup provided one
     if (prefillData && prefillData.image_url) {
       previewDiv.querySelector('img').src = prefillData.image_url;
       previewDiv.style.display = 'block';
@@ -535,27 +550,32 @@ function closeItemForm() {
   state.editingItem = null;
 }
 
-function openRemoveModal(itemId, itemName) {
-  const modal = document.getElementById('modal-remove');
-  document.getElementById('remove-item-name').textContent = itemName;
+function openLogModal(itemId, itemName, currentQty, unit) {
+  const modal = document.getElementById('modal-log');
+  document.getElementById('log-item-name').textContent = itemName;
+  
+  const amountInput = document.getElementById('log-amount');
+  amountInput.value = currentQty;
+  amountInput.max = currentQty;
+  
+  document.getElementById('log-unit-label').textContent = unit || 'pcs';
+  
   modal.dataset.itemId = itemId;
   modal.style.display = 'flex';
 }
 
-function closeRemoveModal() {
-  document.getElementById('modal-remove').style.display = 'none';
+function closeLogModal() {
+  document.getElementById('modal-log').style.display = 'none';
 }
 
 // =======================
 // Event Setup
 // =======================
 function setupEvents() {
-  // Navigation
   document.querySelectorAll('.nav-btn').forEach(btn => {
     btn.addEventListener('click', () => switchView(btn.dataset.view));
   });
 
-  // Inventory Location Tabs
   document.querySelectorAll('#inventory-locations .segment').forEach(btn => {
     btn.addEventListener('click', (e) => {
       document.querySelectorAll('#inventory-locations .segment').forEach(b => b.classList.remove('active'));
@@ -565,7 +585,6 @@ function setupEvents() {
     });
   });
 
-  // Search (debounced)
   let searchTimeout;
   document.getElementById('search-input').addEventListener('input', (e) => {
     clearTimeout(searchTimeout);
@@ -575,33 +594,26 @@ function setupEvents() {
     }, 300);
   });
 
-  // Sort
   document.getElementById('sort-select').addEventListener('change', (e) => {
     state.currentSort = e.target.value;
     renderInventory();
   });
 
-  // FAB — open scanner
   document.getElementById('fab-add').addEventListener('click', () => {
     startScanning();
   });
 
-  // Scanner Modal — close
   document.getElementById('close-scanner').addEventListener('click', stopScanning);
 
-  // Scanner — manual entry
   document.getElementById('manual-entry-btn').addEventListener('click', () => {
     stopScanning();
     openItemForm();
   });
 
-  // Scanner — photo fallback
   document.getElementById('scanner-file').addEventListener('change', handlePhotoFallback);
 
-  // Item Form — close
   document.getElementById('close-item-form').addEventListener('click', closeItemForm);
 
-  // Item Form — location tabs
   document.querySelectorAll('#form-location .segment').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.preventDefault();
@@ -610,19 +622,6 @@ function setupEvents() {
     });
   });
 
-  // Item Form — quantity stepper
-  document.getElementById('qty-minus').addEventListener('click', (e) => {
-    e.preventDefault();
-    const input = document.getElementById('item-quantity');
-    input.value = Math.max(1, parseInt(input.value || 1) - 1);
-  });
-  document.getElementById('qty-plus').addEventListener('click', (e) => {
-    e.preventDefault();
-    const input = document.getElementById('item-quantity');
-    input.value = parseInt(input.value || 1) + 1;
-  });
-
-  // Item Form — save
   document.getElementById('save-item-btn').addEventListener('click', async () => {
     const nameInput = document.getElementById('item-name');
     if (!nameInput.value.trim()) {
@@ -631,16 +630,25 @@ function setupEvents() {
     }
 
     const activeLocBtn = document.querySelector('#form-location .segment.active');
+    
+    let uCost = document.getElementById('item-unit-cost').value;
+    uCost = uCost ? parseFloat(uCost) : null;
 
     const itemData = {
       name: nameInput.value.trim(),
       location: activeLocBtn ? activeLocBtn.dataset.val : 'fridge',
       category: document.getElementById('item-category').value,
-      quantity: parseInt(document.getElementById('item-quantity').value || 1),
+      quantity: parseFloat(document.getElementById('item-quantity').value || 1),
+      unit: document.getElementById('item-unit').value,
+      unit_cost: uCost,
       expiry_date: document.getElementById('item-expiry').value || null
     };
 
-    // If we have an image from barcode lookup, include it
+    // Include EXACT local time in ISO format to satisfy user request
+    if (!state.editingItem) {
+      itemData.date_added = new Date().toISOString(); 
+    }
+
     const previewImg = document.querySelector('#item-image-preview img');
     if (previewImg && previewImg.src && document.getElementById('item-image-preview').style.display !== 'none') {
       itemData.image_url = previewImg.src;
@@ -662,26 +670,33 @@ function setupEvents() {
     }
   });
 
-  // Remove Modal
-  document.getElementById('btn-cancel-remove').addEventListener('click', closeRemoveModal);
+  // Log Modal
+  document.getElementById('btn-cancel-log').addEventListener('click', closeLogModal);
 
-  const handleRemove = async (reason) => {
-    const modal = document.getElementById('modal-remove');
+  const handleLog = async (reason) => {
+    const modal = document.getElementById('modal-log');
     const id = modal.dataset.itemId;
+    const amount = parseFloat(document.getElementById('log-amount').value);
+    
+    if (!amount || amount <= 0) {
+      showToast('Please enter a valid amount', 'error');
+      return;
+    }
+
     try {
-      await deleteItem(id, reason);
-      showToast(`Item marked as ${reason}`);
-      closeRemoveModal();
+      await logItemActivity(id, reason, amount);
+      showToast(`Logged ${amount} as ${reason}`);
+      closeLogModal();
       if (state.currentView === 'inventory') renderInventory();
       if (state.currentView === 'expiring') renderExpiring();
       if (state.currentView === 'stats') renderStats();
     } catch (err) {
-      showToast('Failed to remove item', 'error');
+      showToast('Failed to log activity', 'error');
     }
   };
 
-  document.getElementById('btn-consumed').addEventListener('click', () => handleRemove('consumed'));
-  document.getElementById('btn-wasted').addEventListener('click', () => handleRemove('wasted'));
+  document.getElementById('btn-consumed').addEventListener('click', () => handleLog('consumed'));
+  document.getElementById('btn-wasted').addEventListener('click', () => handleLog('wasted'));
 }
 
 // =======================

@@ -702,3 +702,6 @@ body {
   padding: 40px 16px;
   color: var(--text-light);
 }
+
+.form-group-row { display: flex; gap: 12px; }
+

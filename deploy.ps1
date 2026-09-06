@@ -34,7 +34,7 @@ Write-Host "  Wrangler installed" -ForegroundColor Green
 Write-Host ""
 Write-Host "[3/7] Logging in to Cloudflare..." -ForegroundColor Yellow
 Write-Host "  A browser window will open. Please log in to your Cloudflare account." -ForegroundColor White
-# npx.cmd wrangler login
+npx.cmd wrangler login
 
 # Create D1 database
 Write-Host ""

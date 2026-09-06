@@ -85,20 +85,20 @@
       <div id="view-stats" style="display:none">
         <div class="stats-grid">
           <div class="stat-card">
-            <h3>Total Tracked</h3>
-            <p id="stat-total">0</p>
+            <h3>$ Consumed</h3>
+            <p id="stat-consumed">$0</p>
           </div>
           <div class="stat-card">
-            <h3>Consumed</h3>
-            <p id="stat-consumed">0</p>
+            <h3>$ Wasted</h3>
+            <p id="stat-wasted">$0</p>
           </div>
           <div class="stat-card">
-            <h3>Wasted</h3>
-            <p id="stat-wasted">0</p>
+            <h3>% Consumed</h3>
+            <p id="stat-pct-consumed">0%</p>
           </div>
           <div class="stat-card">
-            <h3>Waste %</h3>
-            <p id="stat-waste-percent">0%</p>
+            <h3>% Wasted</h3>
+            <p id="stat-pct-wasted">0%</p>
           </div>
         </div>
         
@@ -182,13 +182,28 @@
           <select id="item-category"></select>
         </div>
         
-        <div class="form-group">
-          <label>Quantity</label>
-          <div class="quantity-stepper">
-            <button id="qty-minus" class="stepper-btn">-</button>
-            <input type="number" id="item-quantity" value="1" min="1">
-            <button id="qty-plus" class="stepper-btn">+</button>
+        <div class="form-group-row">
+          <div class="form-group" style="flex: 1;">
+            <label>Quantity</label>
+            <input type="number" id="item-quantity" value="1" min="0" step="0.01" style="width: 100%; border: 1px solid var(--border-color); border-radius: 8px; padding: 12px;">
           </div>
+          <div class="form-group" style="flex: 1;">
+            <label>Unit</label>
+            <select id="item-unit" style="width: 100%; border: 1px solid var(--border-color); border-radius: 8px; padding: 12px;">
+              <option value="pcs">Pieces (pcs)</option>
+              <option value="kg">Kilograms (kg)</option>
+              <option value="g">Grams (g)</option>
+              <option value="lbs">Pounds (lbs)</option>
+              <option value="oz">Ounces (oz)</option>
+              <option value="L">Liters (L)</option>
+              <option value="ml">Milliliters (ml)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="item-unit-cost">Unit Cost ($)</label>
+          <input type="number" id="item-unit-cost" placeholder="e.g. 5.99" min="0" step="0.01">
         </div>
         
         <div class="form-group">
@@ -201,14 +216,21 @@
     </div>
   </div>
   
-  <!-- MODAL: Remove Item -->
-  <div id="modal-remove" class="modal" style="display:none">
+  <!-- MODAL: Log Activity -->
+  <div id="modal-log" class="modal" style="display:none">
     <div class="modal-content centered-dialog">
-      <h2>What happened to <span id="remove-item-name">this item</span>?</h2>
-      <div class="remove-actions">
+      <h2>Log <span id="log-item-name">this item</span></h2>
+      <p style="margin-bottom: 16px; color: var(--text-light);">How much was consumed or wasted?</p>
+      
+      <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 24px;">
+        <input type="number" id="log-amount" min="0.01" step="0.01" style="width: 100px; padding: 12px; font-size: 18px; text-align: center; border: 1px solid var(--border-color); border-radius: 8px;">
+        <span id="log-unit-label" style="font-size: 16px; font-weight: bold; color: var(--text-main);">pcs</span>
+      </div>
+
+      <div class="remove-actions" style="margin-top: 0;">
         <button class="btn btn-success btn-large" id="btn-consumed">✅ Consumed</button>
         <button class="btn btn-danger btn-large" id="btn-wasted">🗑️ Wasted</button>
-        <button class="btn btn-text" id="btn-cancel-remove">Cancel</button>
+        <button class="btn btn-text" id="btn-cancel-log">Cancel</button>
       </div>
     </div>
   </div>

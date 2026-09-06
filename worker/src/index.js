@@ -27,6 +27,11 @@ export default {
       if (path === '/api/items' && request.method === 'POST') {
         return await handlePostItem(request, env.DB);
       }
+      // NEW partial logging endpoint
+      if (path.match(/^\/api\/items\/\d+\/log$/) && request.method === 'POST') {
+        const id = path.split('/')[3];
+        return await handleLogItem(request, env.DB, id);
+      }
       if (path.startsWith('/api/items/') && request.method === 'GET') {
         const id = path.split('/')[3];
         if (id) return await handleGetItem(env.DB, id);
@@ -104,14 +109,15 @@ async function handleGetItem(db, id) {
 
 async function handlePostItem(request, db) {
   const body = await request.json();
-  const { name, barcode, category = 'Other', location = 'fridge', quantity = 1, expiry_date, image_url } = body;
+  const { name, barcode, category = 'Other', location = 'fridge', quantity = 1, unit = 'pcs', unit_cost = null, date_added, expiry_date, image_url } = body;
   if (!name) return errorResponse('Name is required', 400);
 
-  const date_added = new Date().toISOString().split('T')[0];
+  // Use the exact date_added passed by frontend (which will now include local time), or fallback to current UTC time.
+  const final_date_added = date_added || new Date().toISOString();
 
   const result = await db.prepare(
-    'INSERT INTO items (name, barcode, category, location, quantity, date_added, expiry_date, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *'
-  ).bind(name, barcode || null, category, location, quantity, date_added, expiry_date || null, image_url || null).first();
+    'INSERT INTO items (name, barcode, category, location, quantity, initial_quantity, unit, unit_cost, date_added, expiry_date, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *'
+  ).bind(name, barcode || null, category, location, quantity, quantity, unit, unit_cost, final_date_added, expiry_date || null, image_url || null).first();
   
   return jsonResponse(result, 201);
 }
@@ -125,7 +131,7 @@ async function handlePutItem(request, db, id) {
   const updates = [];
   const params = [];
 
-  ['name', 'category', 'location', 'quantity', 'expiry_date', 'image_url'].forEach(field => {
+  ['name', 'category', 'location', 'quantity', 'unit', 'unit_cost', 'expiry_date', 'image_url'].forEach(field => {
     if (body[field] !== undefined) {
       updates.push(`${field} = ?`);
       params.push(body[field]);
@@ -142,18 +148,53 @@ async function handlePutItem(request, db, id) {
   return jsonResponse(result);
 }
 
-async function handleDeleteItem(request, db, id) {
+async function handleLogItem(request, db, id) {
   const body = await request.json();
-  const reason = body.reason;
-  if (!reason || !['consumed', 'wasted'].includes(reason)) {
-    return errorResponse('Valid reason (consumed/wasted) is required', 400);
+  const { action, amount } = body;
+  
+  if (!action || !['consumed', 'wasted'].includes(action)) {
+    return errorResponse('Valid action (consumed/wasted) is required', 400);
+  }
+  if (!amount || amount <= 0) {
+    return errorResponse('Amount must be greater than 0', 400);
   }
 
   const item = await db.prepare('SELECT * FROM items WHERE id = ?').bind(id).first();
   if (!item) return errorResponse('Item not found', 404);
 
+  const costValue = item.unit_cost !== null ? (amount * item.unit_cost) : null;
+  const percentage = item.initial_quantity > 0 ? (amount / item.initial_quantity) * 100 : 0;
+  const newQuantity = item.quantity - amount;
+
+  // Insert log
+  await db.prepare(
+    'INSERT INTO item_log (item_name, category, location, reason, logged_quantity, unit, cost_value, percentage) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).bind(item.name, item.category, item.location, action, amount, item.unit, costValue, percentage).run();
+
+  if (newQuantity <= 0.001) {
+    // Delete item if fully consumed/wasted
+    await db.prepare('DELETE FROM items WHERE id = ?').bind(id).run();
+    return jsonResponse({ deleted: true });
+  } else {
+    // Update quantity
+    const updated = await db.prepare('UPDATE items SET quantity = ? WHERE id = ? RETURNING *').bind(newQuantity, id).first();
+    return jsonResponse({ deleted: false, item: updated });
+  }
+}
+
+// Fallback legacy DELETE
+async function handleDeleteItem(request, db, id) {
+  const body = await request.json();
+  const reason = body.reason || 'consumed';
+  
+  const item = await db.prepare('SELECT * FROM items WHERE id = ?').bind(id).first();
+  if (!item) return errorResponse('Item not found', 404);
+
+  const costValue = item.unit_cost !== null ? (item.quantity * item.unit_cost) : null;
+  const percentage = item.initial_quantity > 0 ? (item.quantity / item.initial_quantity) * 100 : 100;
+
   await db.batch([
-    db.prepare('INSERT INTO item_log (item_name, category, location, reason) VALUES (?, ?, ?, ?)').bind(item.name, item.category, item.location, reason),
+    db.prepare('INSERT INTO item_log (item_name, category, location, reason, logged_quantity, unit, cost_value, percentage) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(item.name, item.category, item.location, reason, item.quantity, item.unit, costValue, percentage),
     db.prepare('DELETE FROM items WHERE id = ?').bind(id)
   ]);
 
@@ -177,7 +218,6 @@ async function handleLookup(barcode) {
     const rawCategories = p.categories_tags || [];
     
     let category = 'Other';
-    // Simple category mapping logic
     const catStr = rawCategories.join(' ').toLowerCase();
     if (catStr.includes('dairy') || catStr.includes('milk') || catStr.includes('cheese')) category = 'Dairy';
     else if (catStr.includes('meat') || catStr.includes('fish') || catStr.includes('poultry')) category = 'Meat & Fish';
@@ -202,18 +242,27 @@ async function handleLookup(barcode) {
 
 async function handleStats(db) {
   const summary = await db.prepare(
-    `SELECT reason, COUNT(*) as count FROM item_log GROUP BY reason`
+    `SELECT reason, SUM(cost_value) as total_cost, SUM(percentage) as total_pct FROM item_log GROUP BY reason`
   ).all();
   
-  let total_consumed = 0;
-  let total_wasted = 0;
+  let total_cost_consumed = 0;
+  let total_cost_wasted = 0;
+  let total_pct_consumed = 0;
+  let total_pct_wasted = 0;
+  
   for (const row of summary.results) {
-    if (row.reason === 'consumed') total_consumed = row.count;
-    if (row.reason === 'wasted') total_wasted = row.count;
+    if (row.reason === 'consumed') {
+      total_cost_consumed = row.total_cost || 0;
+      total_pct_consumed = row.total_pct || 0;
+    }
+    if (row.reason === 'wasted') {
+      total_cost_wasted = row.total_cost || 0;
+      total_pct_wasted = row.total_pct || 0;
+    }
   }
 
   const monthsData = await db.prepare(`
-    SELECT strftime('%Y-%m', removed_at) as month, reason, COUNT(*) as count 
+    SELECT strftime('%Y-%m', removed_at) as month, reason, SUM(cost_value) as sum_cost, SUM(percentage) as sum_pct 
     FROM item_log 
     WHERE removed_at >= datetime('now', '-6 months')
     GROUP BY month, reason
@@ -222,14 +271,22 @@ async function handleStats(db) {
 
   const monthMap = {};
   for (const row of monthsData.results) {
-    if (!monthMap[row.month]) monthMap[row.month] = { month: row.month, consumed: 0, wasted: 0 };
-    if (row.reason === 'consumed') monthMap[row.month].consumed = row.count;
-    if (row.reason === 'wasted') monthMap[row.month].wasted = row.count;
+    if (!monthMap[row.month]) monthMap[row.month] = { month: row.month, consumed_cost: 0, wasted_cost: 0, consumed_pct: 0, wasted_pct: 0 };
+    if (row.reason === 'consumed') {
+      monthMap[row.month].consumed_cost = row.sum_cost || 0;
+      monthMap[row.month].consumed_pct = row.sum_pct || 0;
+    }
+    if (row.reason === 'wasted') {
+      monthMap[row.month].wasted_cost = row.sum_cost || 0;
+      monthMap[row.month].wasted_pct = row.sum_pct || 0;
+    }
   }
 
   return jsonResponse({
-    total_consumed,
-    total_wasted,
+    total_cost_consumed,
+    total_cost_wasted,
+    total_pct_consumed,
+    total_pct_wasted,
     by_month: Object.values(monthMap)
   });
 }
