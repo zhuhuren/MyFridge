@@ -39,12 +39,9 @@
     <!-- MAIN APP (Hidden until auth) -->
     <div id="main-app" style="display: none;">
     <!-- Header -->
-    <header id="main-header" style="display: flex; justify-content: space-between; align-items: center; padding: 0 16px;">
-      <div>
-        <h1 class="title" style="margin: 0;">MyGrocery</h1>
-        <div id="header-location">Fridge</div>
-      </div>
-      <button id="btn-logout" class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; margin: 0;">Logout</button>
+    <header id="main-header">
+      <h1 class="title">MyGrocery</h1>
+      <div id="header-location">Fridge</div>
     </header>
     
     <!-- Main Content Area -->
@@ -178,6 +175,10 @@
       <button class="nav-btn" data-view="stats">
         <span class="nav-icon">📊</span>
         <span class="nav-label">Stats</span>
+      </button>
+      <button class="nav-btn" id="btn-logout">
+        <span class="nav-icon">🚪</span>
+        <span class="nav-label">Logout</span>
       </button>
     </nav>
   </div>
