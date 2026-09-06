@@ -1,6 +1,6 @@
 {
-  "name": "MyFridge",
-  "short_name": "MyFridge",
+  "name": "MyGrocery",
+  "short_name": "MyGrocery",
   "description": "Track your food inventory and reduce waste",
   "start_url": "/MyFridge/",
   "scope": "/MyFridge/",
