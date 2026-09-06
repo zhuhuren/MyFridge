@@ -471,6 +471,39 @@ async function renderStats() {
   } else {
     chart.innerHTML = '<div class="empty-state"><p>No data yet</p></div>';
   }
+
+  const catList = document.getElementById('stats-category-list');
+  if (catList) {
+    catList.innerHTML = '';
+    if (stats.by_category && stats.by_category.length > 0) {
+      const maxVal = Math.max(...stats.by_category.map(c => c.sum_pct || 0));
+
+      stats.by_category.forEach(cat => {
+        const val = cat.sum_pct || 0;
+        if (val <= 0) return;
+        
+        const pct = (val / maxVal) * 100;
+        const catColor = getCategoryColor(cat.category);
+        const catEmoji = getCategoryEmoji(cat.category);
+        const displayVal = cat.sum_cost > 0 ? `$${cat.sum_cost.toFixed(2)} (${Math.round(val)}%)` : `${Math.round(val)}%`;
+        
+        const row = document.createElement('div');
+        row.style.marginBottom = '12px';
+        row.innerHTML = `
+          <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 4px;">
+            <span>${catEmoji} ${cat.category}</span>
+            <span style="font-weight: bold; color: var(--danger-color);">${displayVal}</span>
+          </div>
+          <div style="width: 100%; background: #e0e0e0; border-radius: 4px; height: 8px; overflow: hidden;">
+            <div style="width: ${pct}%; background: ${catColor}; height: 100%; border-radius: 4px;"></div>
+          </div>
+        `;
+        catList.appendChild(row);
+      });
+    } else {
+      catList.innerHTML = '<div class="empty-state" style="padding: 16px 0;"><p>No waste data yet</p></div>';
+    }
+  }
 }
 
 function switchView(viewName) {

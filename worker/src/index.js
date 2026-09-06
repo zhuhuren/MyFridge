@@ -288,12 +288,21 @@ async function handleStats(db) {
     }
   }
 
+  const categoryData = await db.prepare(`
+    SELECT category, SUM(cost_value) as sum_cost, SUM(percentage) as sum_pct
+    FROM item_log
+    WHERE reason = 'wasted'
+    GROUP BY category
+    ORDER BY sum_pct DESC
+  `).all();
+
   return jsonResponse({
     total_cost_consumed,
     total_cost_wasted,
     total_pct_consumed,
     total_pct_wasted,
-    by_month: Object.values(monthMap)
+    by_month: Object.values(monthMap),
+    by_category: categoryData.results || []
   });
 }
 
