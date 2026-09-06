@@ -56,33 +56,6 @@ function setupAuthEvents() {
       showToast(e.message, 'error');
     }
   });
-
-  document.getElementById('btn-create-hh').addEventListener('click', async () => {
-    const name = document.getElementById('create-name').value.trim();
-    const pass = document.getElementById('create-pass').value.trim();
-    const admin = document.getElementById('create-admin').value.trim();
-    if (!name || !pass || !admin) return showToast('All fields required', 'error');
-
-    try {
-      const res = await originalFetch.call(window, API_BASE_URL + '/api/households/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, password: pass, admin_code: admin })
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to create');
-      }
-      const data = await res.json();
-      const token = btoa(data.id + ':' + pass);
-      localStorage.setItem('mygrocery_token', token);
-      localStorage.setItem('mygrocery_name', data.name);
-      checkAuth();
-      showToast('Household Created!');
-    } catch (e) {
-      showToast(e.message, 'error');
-    }
-  });
 }
 
 const CATEGORIES = [
