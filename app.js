@@ -4,6 +4,7 @@ const CATEGORIES = [
   { name: 'Dairy', emoji: '🥛', color: '#42A5F5' },
   { name: 'Meat & Fish', emoji: '🥩', color: '#EF5350' },
   { name: 'Produce', emoji: '🥬', color: '#66BB6A' },
+  { name: 'Dish', emoji: '🍲', color: '#8D6E63' },
   { name: 'Bakery & Grains', emoji: '🍞', color: '#FFA726' },
   { name: 'Frozen', emoji: '🧊', color: '#26C6DA' },
   { name: 'Canned & Jarred', emoji: '🥫', color: '#FF7043' },
@@ -407,16 +408,12 @@ async function renderStats() {
   const totalPctConsumed = stats.total_pct_consumed || 0;
   const totalPctWasted = stats.total_pct_wasted || 0;
 
-  // Calculate percentages
+  // Always use percentage for the Waste % so items without a cost (like Dishes) are counted!
   let wastePercent = 0;
   let consumePercent = 0;
+  const totalPct = totalPctConsumed + totalPctWasted;
   
-  if (totalCostConsumed > 0 || totalCostWasted > 0) {
-    const totalCost = totalCostConsumed + totalCostWasted;
-    wastePercent = Math.round((totalCostWasted / totalCost) * 100);
-    consumePercent = Math.round((totalCostConsumed / totalCost) * 100);
-  } else if (totalPctConsumed > 0 || totalPctWasted > 0) {
-    const totalPct = totalPctConsumed + totalPctWasted;
+  if (totalPct > 0) {
     wastePercent = Math.round((totalPctWasted / totalPct) * 100);
     consumePercent = Math.round((totalPctConsumed / totalPct) * 100);
   }
@@ -431,19 +428,12 @@ async function renderStats() {
 
   const months = stats.by_month || [];
   if (months.length > 0) {
-    // We base the chart heights on costs if they exist, otherwise percentages
-    let useCosts = months.some(m => m.consumed_cost > 0 || m.wasted_cost > 0);
-    
-    let maxVal = 1;
-    if (useCosts) {
-      maxVal = Math.max(...months.map(m => Math.max(m.consumed_cost, m.wasted_cost, 1)));
-    } else {
-      maxVal = Math.max(...months.map(m => Math.max(m.consumed_pct, m.wasted_pct, 1)));
-    }
+    // Always use percentages for chart heights so $0 items are tracked visually
+    const maxVal = Math.max(...months.map(m => Math.max(m.consumed_pct, m.wasted_pct, 1)));
 
     months.forEach(month => {
-      let cVal = useCosts ? month.consumed_cost : month.consumed_pct;
-      let wVal = useCosts ? month.wasted_cost : month.wasted_pct;
+      let cVal = month.consumed_pct;
+      let wVal = month.wasted_pct;
 
       const consumedHeight = (cVal / maxVal) * 100;
       const wastedHeight = (wVal / maxVal) * 100;
@@ -456,8 +446,8 @@ async function renderStats() {
       col.className = 'chart-column';
       col.innerHTML = `
         <div class="chart-bar-group">
-          <div class="chart-bar consumed" style="height: ${consumedHeight}%" title="Consumed: ${cVal.toFixed(2)}"></div>
-          <div class="chart-bar wasted" style="height: ${wastedHeight}%" title="Wasted: ${wVal.toFixed(2)}"></div>
+          <div class="chart-bar consumed" style="height: ${consumedHeight}%" title="Consumed % Volume"></div>
+          <div class="chart-bar wasted" style="height: ${wastedHeight}%" title="Wasted % Volume"></div>
         </div>
         <div class="chart-label">${label}</div>
       `;
@@ -653,6 +643,14 @@ function setupEvents() {
       document.querySelectorAll('#form-location .segment').forEach(b => b.classList.remove('active'));
       e.target.classList.add('active');
     });
+  });
+
+  document.getElementById('item-category').addEventListener('change', (e) => {
+    if (e.target.value === 'Dish') {
+      document.getElementById('item-quantity').value = 100;
+      document.getElementById('item-unit').value = '%';
+      document.getElementById('item-unit-cost').value = '';
+    }
   });
 
   document.getElementById('save-item-btn').addEventListener('click', async () => {
