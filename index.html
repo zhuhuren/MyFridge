@@ -159,9 +159,12 @@
         <button class="close-btn" id="close-item-form">×</button>
       </div>
       <div class="form-body">
-        <div id="item-image-preview" style="display:none">
+        <div id="item-image-preview" style="display:none; position: relative;">
           <img src="" alt="Product Image">
+          <button id="btn-change-photo" type="button" class="btn btn-outline" style="position: absolute; bottom: 8px; right: 8px; background: rgba(255,255,255,0.9); border:none; padding: 6px 10px; font-size: 12px; border-radius: 8px;">📷 Change</button>
         </div>
+        <button id="btn-set-photo" type="button" class="btn btn-outline" style="width: 100%; margin-bottom: 16px; border-style: dashed;">📷 Add Photo</button>
+        <input type="file" id="item-image-file" accept="image/*" style="display:none">
         
         <div class="form-group">
           <label for="item-name">Name</label>
