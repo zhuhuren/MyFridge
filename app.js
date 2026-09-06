@@ -21,7 +21,7 @@ function checkAuth() {
   if (token) {
     document.getElementById('view-auth').style.display = 'none';
     document.getElementById('main-app').style.display = 'block';
-    renderInventory();
+    switchView('inventory');
   } else {
     document.getElementById('view-auth').style.display = 'flex';
     document.getElementById('main-app').style.display = 'none';
@@ -735,6 +735,7 @@ async function generateCustomReport() {
 }
 
 function switchView(viewName) {
+  if (!viewName) return;
   state.currentView = viewName;
 
   document.getElementById('view-inventory').style.display = viewName === 'inventory' ? 'block' : 'none';
