@@ -295,9 +295,15 @@ function renderCategoryChips() {
   });
 }
 
+function getCategoryEmoji(categoryName) {
+  const cat = CATEGORIES.find(c => c.name === categoryName);
+  return cat ? cat.emoji : '📦';
+}
+
 function createItemCard(item) {
   const expiryInfo = getExpiryStatus(item.expiry_date);
   const catColor = getCategoryColor(item.category || 'Other');
+  const catEmoji = getCategoryEmoji(item.category || 'Other');
   const safeName = escapeHtml(item.name);
 
   const card = document.createElement('div');
@@ -306,24 +312,33 @@ function createItemCard(item) {
 
   const displayUnit = item.unit || 'pcs';
   const addedText = formatDateTime(item.date_added);
+  
+  const thumbnailHtml = item.image_url 
+    ? `<img src="${item.image_url}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 6px;">`
+    : `<span style="font-size: 24px;">${catEmoji}</span>`;
 
   card.innerHTML = `
-    <div class="item-info">
-      <div class="item-header">
-        <span class="item-name">${safeName}</span>
-        <span class="item-category-pill" style="background-color: ${catColor}">${escapeHtml(item.category || 'Other')}</span>
+    <div style="display: flex; flex-direction: row; align-items: center; width: 100%;">
+      <div class="item-thumbnail" style="width: 48px; height: 48px; min-width: 48px; border-radius: 6px; overflow: hidden; margin-right: 12px; background: #f0f0f0; display: flex; align-items: center; justify-content: center;">
+        ${thumbnailHtml}
       </div>
-      <div class="item-details">
-        <span class="item-qty">Qty: ${item.quantity} ${displayUnit} · ${item.location}</span>
-        <span class="item-expiry-text ${expiryInfo.status}">${expiryInfo.text}</span>
+      <div class="item-info" style="flex: 1; min-width: 0;">
+        <div class="item-header">
+          <span class="item-name">${safeName}</span>
+          <span class="item-category-pill" style="background-color: ${catColor}">${escapeHtml(item.category || 'Other')}</span>
+        </div>
+        <div class="item-details">
+          <span class="item-qty">Qty: ${item.quantity} ${displayUnit} · ${item.location}</span>
+          <span class="item-expiry-text ${expiryInfo.status}">${expiryInfo.text}</span>
+        </div>
+        <div style="font-size: 11px; color: var(--text-light); margin-top: 6px;">
+          Added: ${addedText}
+        </div>
       </div>
-      <div style="font-size: 11px; color: var(--text-light); margin-top: 6px;">
-        Added: ${addedText}
+      <div class="item-actions" style="margin-left: 8px;">
+        <button class="icon-btn edit" title="Edit">✏️</button>
+        <button class="icon-btn delete" title="Log Activity">📝</button>
       </div>
-    </div>
-    <div class="item-actions">
-      <button class="icon-btn edit" title="Edit">✏️</button>
-      <button class="icon-btn delete" title="Log Activity">📝</button>
     </div>
   `;
 
