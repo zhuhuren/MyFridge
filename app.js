@@ -21,6 +21,7 @@ let state = {
   currentSort: 'expiry_asc',
   searchQuery: '',
   items: [],
+  recentLogs: [],
   editingItem: null,
   html5Qrcode: null
 };
@@ -507,37 +508,85 @@ async function renderStats() {
 
   const historyList = document.getElementById('stats-history-list');
   if (historyList) {
-    historyList.innerHTML = '';
-    if (stats.recent_logs && stats.recent_logs.length > 0) {
-      stats.recent_logs.forEach(log => {
-        const row = document.createElement('div');
-        row.style = 'display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border-color);';
-        
-        const icon = log.reason === 'consumed' ? '✅' : '🗑️';
-        const color = log.reason === 'consumed' ? 'var(--success-color)' : 'var(--danger-color)';
-        const costText = log.cost_value ? `<br><span style="font-weight:normal; font-size: 11px;">$${log.cost_value.toFixed(2)}</span>` : '';
-        const dateStr = formatDateTime(log.removed_at.replace(' ', 'T') + 'Z');
-        
-        row.innerHTML = `
-          <div style="display: flex; align-items: center; gap: 12px;">
-            <div style="font-size: 24px; min-width: 30px; text-align: center;">${icon}</div>
-            <div>
-              <div style="font-weight: bold; color: var(--text-main); font-size: 15px;">${escapeHtml(log.item_name)}</div>
-              <div style="font-size: 11px; color: var(--text-light); margin-top: 2px;">${dateStr}</div>
-            </div>
-          </div>
-          <div style="text-align: right;">
-            <div style="font-weight: bold; color: ${color}; font-size: 14px;">
-              ${log.logged_quantity} ${escapeHtml(log.unit || 'pcs')}${costText}
-            </div>
-          </div>
-        `;
-        historyList.appendChild(row);
-      });
-    } else {
-      historyList.innerHTML = '<div class="empty-state" style="padding: 16px 0;"><p>No history yet</p></div>';
-    }
+    state.recentLogs = stats.recent_logs || [];
+    renderHistory();
   }
+}
+
+function renderHistory() {
+  const historyList = document.getElementById('stats-history-list');
+  if (!historyList) return;
+  
+  historyList.innerHTML = '';
+  
+  const filterType = document.getElementById('history-filter-type').value;
+  const filterCategory = document.getElementById('history-filter-category').value;
+  
+  const filteredLogs = state.recentLogs.filter(log => {
+    if (filterType !== 'all' && log.reason !== filterType) return false;
+    if (filterCategory !== 'all' && log.category !== filterCategory) return false;
+    return true;
+  });
+
+  if (filteredLogs.length > 0) {
+    filteredLogs.forEach(log => {
+      const row = document.createElement('div');
+      row.style = 'display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border-color); cursor: pointer;';
+      
+      const icon = log.reason === 'consumed' ? '✅' : '🗑️';
+      const color = log.reason === 'consumed' ? 'var(--success-color)' : 'var(--danger-color)';
+      const costText = log.cost_value ? `<br><span style="font-weight:normal; font-size: 11px;">$${log.cost_value.toFixed(2)}</span>` : '';
+      const dateStr = formatDateTime(log.removed_at.replace(' ', 'T') + 'Z');
+      
+      row.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 12px; pointer-events: none;">
+          <div style="font-size: 24px; min-width: 30px; text-align: center;">${icon}</div>
+          <div>
+            <div style="font-weight: bold; color: var(--text-main); font-size: 15px;">${escapeHtml(log.item_name)}</div>
+            <div style="font-size: 11px; color: var(--text-light); margin-top: 2px;">${dateStr}</div>
+          </div>
+        </div>
+        <div style="text-align: right; pointer-events: none;">
+          <div style="font-weight: bold; color: ${color}; font-size: 14px;">
+            ${log.logged_quantity} ${escapeHtml(log.unit || 'pcs')}${costText}
+          </div>
+        </div>
+      `;
+      
+      row.onclick = () => openHistoryInfo(log);
+      historyList.appendChild(row);
+    });
+  } else {
+    historyList.innerHTML = '<div class="empty-state" style="padding: 16px 0;"><p>No history matches filters</p></div>';
+  }
+}
+
+function openHistoryInfo(log) {
+  const modal = document.getElementById('modal-history-info');
+  const body = document.getElementById('history-info-body');
+  
+  const icon = log.reason === 'consumed' ? '✅ Consumed' : '🗑️ Wasted';
+  const color = log.reason === 'consumed' ? 'var(--success-color)' : 'var(--danger-color)';
+  const dateStr = formatDateTime(log.removed_at.replace(' ', 'T') + 'Z');
+  
+  let html = `
+    <div style="margin-bottom: 8px;"><strong>Name:</strong> ${escapeHtml(log.item_name)}</div>
+    <div style="margin-bottom: 8px;"><strong>Category:</strong> ${getCategoryEmoji(log.category)} ${escapeHtml(log.category)}</div>
+    <div style="margin-bottom: 8px;"><strong>Status:</strong> <span style="font-weight:bold; color:${color};">${icon}</span></div>
+    <div style="margin-bottom: 8px;"><strong>Date:</strong> ${dateStr}</div>
+    <div style="margin-bottom: 8px;"><strong>Amount Logged:</strong> ${log.logged_quantity} ${escapeHtml(log.unit || 'pcs')}</div>
+  `;
+  
+  if (log.cost_value !== null) {
+    html += `<div style="margin-bottom: 8px;"><strong>Cost Logged:</strong> $${log.cost_value.toFixed(2)}</div>`;
+  }
+  
+  if (log.percentage !== null) {
+    html += `<div style="margin-bottom: 8px;"><strong>Volume Logged:</strong> ${Math.round(log.percentage)}% of original</div>`;
+  }
+  
+  body.innerHTML = html;
+  modal.style.display = 'flex';
 }
 
 function switchView(viewName) {
@@ -718,6 +767,30 @@ function setupEvents() {
     stopScanning();
     openItemForm();
   });
+
+  // History features
+  const catFilter = document.getElementById('history-filter-category');
+  if (catFilter) {
+    CATEGORIES.forEach(cat => {
+      const opt = document.createElement('option');
+      opt.value = cat.name;
+      opt.textContent = `${cat.emoji} ${cat.name}`;
+      catFilter.appendChild(opt);
+    });
+    catFilter.addEventListener('change', renderHistory);
+  }
+  
+  const typeFilter = document.getElementById('history-filter-type');
+  if (typeFilter) {
+    typeFilter.addEventListener('change', renderHistory);
+  }
+  
+  const closeHistoryBtn = document.getElementById('close-history-info');
+  if (closeHistoryBtn) {
+    closeHistoryBtn.addEventListener('click', () => {
+      document.getElementById('modal-history-info').style.display = 'none';
+    });
+  }
 
   document.getElementById('scanner-file').addEventListener('change', handlePhotoFallback);
   
