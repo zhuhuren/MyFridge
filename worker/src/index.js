@@ -182,13 +182,19 @@ async function handleLogItem(request, db, id) {
   }
 }
 
-// Fallback legacy DELETE
+// Fallback legacy DELETE and Mistake Deletion
 async function handleDeleteItem(request, db, id) {
   const body = await request.json();
   const reason = body.reason || 'consumed';
   
   const item = await db.prepare('SELECT * FROM items WHERE id = ?').bind(id).first();
   if (!item) return errorResponse('Item not found', 404);
+
+  if (reason === 'mistake') {
+    // If it's a mistake, just delete it completely without logging to stats
+    await db.prepare('DELETE FROM items WHERE id = ?').bind(id).run();
+    return jsonResponse({ success: true, mistake: true });
+  }
 
   const costValue = item.unit_cost !== null ? (item.quantity * item.unit_cost) : null;
   const percentage = item.initial_quantity > 0 ? (item.quantity / item.initial_quantity) * 100 : 100;

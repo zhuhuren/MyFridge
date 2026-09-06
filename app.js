@@ -530,6 +530,11 @@ async function openItemForm(itemId = null, prefillData = null) {
       btn.classList.toggle('active', btn.dataset.val === item.location);
     });
 
+    const deleteBtn = document.getElementById('btn-delete-mistake');
+    if (deleteBtn) {
+      deleteBtn.style.display = 'block';
+    }
+
     if (item.image_url) {
       previewDiv.querySelector('img').src = item.image_url;
       previewDiv.style.display = 'block';
@@ -556,6 +561,11 @@ async function openItemForm(itemId = null, prefillData = null) {
     document.querySelectorAll('#form-location .segment').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.val === state.currentLocation);
     });
+
+    const deleteBtn = document.getElementById('btn-delete-mistake');
+    if (deleteBtn) {
+      deleteBtn.style.display = 'none';
+    }
 
     if (prefillData && prefillData.image_url) {
       previewDiv.querySelector('img').src = prefillData.image_url;
@@ -692,6 +702,29 @@ function setupEvents() {
       showToast('Failed to save item', 'error');
     }
   });
+
+  const deleteBtn = document.getElementById('btn-delete-mistake');
+  if (deleteBtn) {
+    deleteBtn.addEventListener('click', async () => {
+      if (!state.editingItem) return;
+      if (confirm('Are you sure you want to delete this item? It will not be logged in your stats.')) {
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/items/${state.editingItem.id}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason: 'mistake' })
+          });
+          if (!response.ok) throw new Error('Failed to delete');
+          showToast('Item deleted completely.');
+          closeItemForm();
+          if (state.currentView === 'inventory') renderInventory();
+          if (state.currentView === 'expiring') renderExpiring();
+        } catch (err) {
+          showToast('Failed to delete item', 'error');
+        }
+      }
+    });
+  }
 
   // Log Modal
   document.getElementById('btn-cancel-log').addEventListener('click', closeLogModal);
