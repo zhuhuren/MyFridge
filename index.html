@@ -15,10 +15,36 @@
 <body>
   <div id="app">
     
+    <!-- VIEW: Auth -->
+    <div id="view-auth" style="padding: 20px; display: flex; flex-direction: column; justify-content: center; height: 100vh;">
+      <h1 style="text-align: center; color: var(--primary);">MyGrocery</h1>
+      <p style="text-align: center; margin-bottom: 30px;">Login to your Household</p>
+      
+      <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px;">
+        <h3 style="margin-top: 0;">Login</h3>
+        <input type="text" id="auth-name" placeholder="Household Name" class="form-input">
+        <input type="password" id="auth-pass" placeholder="Password" class="form-input">
+        <button id="btn-login" class="btn btn-primary" style="width: 100%; margin-top: 10px;">Login</button>
+      </div>
+
+      <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+        <h3 style="margin-top: 0;">Create New Household</h3>
+        <input type="text" id="create-name" placeholder="Household Name" class="form-input">
+        <input type="password" id="create-pass" placeholder="Password" class="form-input">
+        <input type="password" id="create-admin" placeholder="Admin Invite Code" class="form-input">
+        <button id="btn-create-hh" class="btn btn-outline" style="width: 100%; margin-top: 10px;">Create Household</button>
+      </div>
+    </div>
+
+    <!-- MAIN APP (Hidden until auth) -->
+    <div id="main-app" style="display: none;">
     <!-- Header -->
-    <header id="main-header">
-      <h1 class="title">MyGrocery</h1>
-      <div id="header-location">Fridge</div>
+    <header id="main-header" style="display: flex; justify-content: space-between; align-items: center; padding: 0 16px;">
+      <div>
+        <h1 class="title" style="margin: 0;">MyGrocery</h1>
+        <div id="header-location">Fridge</div>
+      </div>
+      <button id="btn-logout" class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; margin: 0;">Logout</button>
     </header>
     
     <!-- Main Content Area -->
@@ -156,6 +182,7 @@
     </nav>
   </div>
   
+    </div>
   <!-- MODAL: Scanner -->
   <div id="modal-scanner" class="modal" style="display:none">
     <div class="modal-content full-screen">
@@ -318,3 +345,4 @@
   </script>
 </body>
 </html>
+

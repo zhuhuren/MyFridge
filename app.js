@@ -1,5 +1,90 @@
 const API_BASE_URL = 'https://mygrocery-api.zhuqingmo.workers.dev';
 
+const originalFetch = window.fetch;
+window.fetch = async (...args) => {
+  let [resource, config] = args;
+  if (!config) config = {};
+  if (!config.headers) config.headers = {};
+  
+  const token = localStorage.getItem('mygrocery_token');
+  // Only intercept API calls to our worker
+  if (token && typeof resource === 'string' && resource.startsWith(API_BASE_URL)) {
+    config.headers['Authorization'] = 'Basic ' + token;
+  }
+  return originalFetch(resource, config);
+};
+
+function checkAuth() {
+  const name = localStorage.getItem('mygrocery_name');
+  if(name) { const hhName = document.querySelector('#main-header h1.title'); if(hhName) hhName.textContent = name; }
+  const token = localStorage.getItem('mygrocery_token');
+  if (token) {
+    document.getElementById('view-auth').style.display = 'none';
+    document.getElementById('main-app').style.display = 'block';
+    renderInventory();
+  } else {
+    document.getElementById('view-auth').style.display = 'flex';
+    document.getElementById('main-app').style.display = 'none';
+  }
+}
+
+function setupAuthEvents() {
+  document.getElementById('btn-logout').addEventListener('click', () => {
+    localStorage.removeItem('mygrocery_token');
+    localStorage.removeItem('mygrocery_name');
+    checkAuth();
+  });
+  document.getElementById('btn-login').addEventListener('click', async () => {
+    const name = document.getElementById('auth-name').value.trim();
+    const pass = document.getElementById('auth-pass').value.trim();
+    if (!name || !pass) return showToast('Name and password required', 'error');
+
+    try {
+      const res = await originalFetch(API_BASE_URL + '/api/households/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, password: pass })
+      });
+      if (!res.ok) throw new Error('Invalid login');
+      const data = await res.json();
+      const token = btoa(data.id + ':' + pass);
+      localStorage.setItem('mygrocery_token', token);
+      localStorage.setItem('mygrocery_name', data.name);
+      checkAuth();
+      showToast('Welcome back, ' + data.name + '!');
+    } catch (e) {
+      showToast(e.message, 'error');
+    }
+  });
+
+  document.getElementById('btn-create-hh').addEventListener('click', async () => {
+    const name = document.getElementById('create-name').value.trim();
+    const pass = document.getElementById('create-pass').value.trim();
+    const admin = document.getElementById('create-admin').value.trim();
+    if (!name || !pass || !admin) return showToast('All fields required', 'error');
+
+    try {
+      const res = await originalFetch(API_BASE_URL + '/api/households/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, password: pass, admin_code: admin })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to create');
+      }
+      const data = await res.json();
+      const token = btoa(data.id + ':' + pass);
+      localStorage.setItem('mygrocery_token', token);
+      localStorage.setItem('mygrocery_name', data.name);
+      checkAuth();
+      showToast('Household Created!');
+    } catch (e) {
+      showToast(e.message, 'error');
+    }
+  });
+}
+
 const CATEGORIES = [
   { name: 'Dairy', emoji: '🥛', color: '#42A5F5' },
   { name: 'Meat & Fish', emoji: '🥩', color: '#EF5350' },
@@ -1087,5 +1172,8 @@ function setupEvents() {
 document.addEventListener('DOMContentLoaded', () => {
   renderCategoryChips();
   setupEvents();
-  renderInventory();
+  setupAuthEvents();
+  checkAuth();
 });
+
+

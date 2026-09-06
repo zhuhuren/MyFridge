@@ -1,62 +1,49 @@
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-};
-
-const jsonResponse = (data, status = 200) => new Response(JSON.stringify(data), {
-  status,
-  headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-});
-
-const errorResponse = (message, status = 500) => jsonResponse({ error: message }, status);
-
 export default {
-  async fetch(request, env, ctx) {
-    if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: corsHeaders });
-    }
-
+  async fetch(request, env) {
     const url = new URL(request.url);
     const path = url.pathname;
-    
+
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        }
+      });
+    }
+
     try {
-      if (path === '/api/items' && request.method === 'GET') {
-        return await handleGetItems(request, env.DB, url);
+      if (path === '/api/households/create' && request.method === 'POST') {
+        return await handleCreateHousehold(request, env.DB);
       }
-      if (path === '/api/items' && request.method === 'POST') {
-        return await handlePostItem(request, env.DB);
+      if (path === '/api/households/login' && request.method === 'POST') {
+        return await handleLoginHousehold(request, env.DB);
       }
-      // NEW partial logging endpoint
-      if (path.match(/^\/api\/items\/\d+\/log$/) && request.method === 'POST') {
-        const id = path.split('/')[3];
-        return await handleLogItem(request, env.DB, id);
+
+      const authHeader = request.headers.get('Authorization');
+      if (!authHeader || !authHeader.startsWith('Basic ')) {
+        return errorResponse('Missing or invalid Authorization header', 401);
       }
-      if (path.startsWith('/api/items/') && request.method === 'GET') {
-        const id = path.split('/')[3];
-        if (id) return await handleGetItem(env.DB, id);
-      }
-      if (path.startsWith('/api/items/') && request.method === 'PUT') {
-        const id = path.split('/')[3];
-        if (id) return await handlePutItem(request, env.DB, id);
-      }
-      if (path.startsWith('/api/items/') && request.method === 'DELETE') {
-        const id = path.split('/')[3];
-        if (id) return await handleDeleteItem(request, env.DB, id);
-      }
-      if (path.startsWith('/api/lookup/') && request.method === 'GET') {
-        const barcode = path.split('/')[3];
-        if (barcode) return await handleLookup(env.DB, barcode);
-      }
-      if (path === '/api/stats' && request.method === 'GET') {
-        return await handleStats(env.DB);
-      }
-      if (path === '/api/expiring' && request.method === 'GET') {
-        return await handleExpiring(env.DB);
-      }
-      if (path === '/api/report' && request.method === 'GET') {
-        return await handleReport(request, env.DB);
-      }
+      const token = atob(authHeader.split(' ')[1]);
+      const [householdId, password] = token.split(':');
+      if (!householdId || !password) return errorResponse('Invalid token format', 401);
+
+      const household = await env.DB.prepare('SELECT * FROM households WHERE id = ? AND password_hash = ?').bind(householdId, password).first();
+      if (!household) return errorResponse('Unauthorized', 401);
+
+      const hhId = household.id;
+
+      if (path === '/api/items' && request.method === 'GET') return await handleGetItems(request, env.DB, hhId);
+      if (path === '/api/items' && request.method === 'POST') return await handlePostItem(request, env.DB, hhId);
+      if (path.match(/^\/api\/items\/\d+\/log$/) && request.method === 'POST') return await handleLogItem(request, env.DB, path.split('/')[3], hhId);
+      if (path.startsWith('/api/items/') && request.method === 'GET') return await handleGetItem(env.DB, path.split('/')[3], hhId);
+      if (path.startsWith('/api/items/') && request.method === 'PUT') return await handlePutItem(request, env.DB, path.split('/')[3], hhId);
+      if (path.startsWith('/api/items/') && request.method === 'DELETE') return await handleDeleteItem(request, env.DB, path.split('/')[3], hhId);
+      if (path.startsWith('/api/lookup/') && request.method === 'GET') return await handleLookup(env.DB, path.split('/')[3], hhId);
+      if (path === '/api/stats' && request.method === 'GET') return await handleStats(env.DB, hhId);
+      if (path === '/api/expiring' && request.method === 'GET') return await handleExpiring(env.DB, hhId);
+      if (path === '/api/report' && request.method === 'GET') return await handleReport(request, env.DB, hhId);
       
       return errorResponse('Not found', 404);
     } catch (e) {
@@ -66,311 +53,169 @@ export default {
   }
 };
 
-async function handleGetItems(request, db, url) {
+async function handleCreateHousehold(request, db) {
+  const body = await request.json();
+  if (body.admin_code !== 'mygrocery2026') return errorResponse('Invalid Admin Code', 403);
+  if (!body.name || !body.password) return errorResponse('Name and password required', 400);
+
+  const existing = await db.prepare('SELECT id FROM households WHERE name = ?').bind(body.name).first();
+  if (existing) return errorResponse('Household name already exists', 400);
+
+  const id = crypto.randomUUID();
+  await db.prepare('INSERT INTO households (id, name, password_hash) VALUES (?, ?, ?)').bind(id, body.name, body.password).run();
+  return jsonResponse({ id, name: body.name });
+}
+
+async function handleLoginHousehold(request, db) {
+  const body = await request.json();
+  if (!body.name || !body.password) return errorResponse('Name and password required', 400);
+
+  const hh = await db.prepare('SELECT id, name FROM households WHERE name = ? AND password_hash = ?').bind(body.name, body.password).first();
+  if (!hh) return errorResponse('Invalid name or password', 401);
+  return jsonResponse({ id: hh.id, name: hh.name });
+}
+
+async function handleGetItems(request, db, hhId) {
+  const url = new URL(request.url);
   const location = url.searchParams.get('location');
   const category = url.searchParams.get('category');
   const search = url.searchParams.get('search');
   const sort = url.searchParams.get('sort') || 'date_added_desc';
 
-  let query = 'SELECT * FROM items WHERE 1=1';
-  const params = [];
+  let query = 'SELECT * FROM items WHERE household_id = ?';
+  const params = [hhId];
 
-  if (location) {
-    query += ' AND location = ?';
-    params.push(location);
-  }
-  if (category) {
-    query += ' AND category = ?';
-    params.push(category);
-  }
-  if (search) {
-    query += ' AND name LIKE ?';
-    params.push(`%${search}%`);
-  }
+  if (location) { query += ' AND location = ?'; params.push(location); }
+  if (category) { query += ' AND category = ?'; params.push(category); }
+  if (search) { query += ' AND name LIKE ?'; params.push('%' + search + '%'); }
 
-  const sortMap = {
-    'expiry_asc': 'expiry_date ASC',
-    'expiry_desc': 'expiry_date DESC',
-    'name_asc': 'name ASC',
-    'name_desc': 'name DESC',
-    'date_added_desc': 'date_added DESC',
-    'category_asc': 'category ASC'
-  };
-  
-  const orderBy = sortMap[sort] || sortMap['date_added_desc'];
-  query += ` ORDER BY ${orderBy}`;
+  const sortMap = { 'expiry_asc': 'expiry_date ASC', 'expiry_desc': 'expiry_date DESC', 'name_asc': 'name ASC', 'name_desc': 'name DESC', 'date_added_desc': 'date_added DESC', 'category_asc': 'category ASC' };
+  query += ' ORDER BY ' + (sortMap[sort] || sortMap['date_added_desc']);
 
   const { results } = await db.prepare(query).bind(...params).all();
-  return jsonResponse(results);
+  return jsonResponse(results || []);
 }
 
-async function handleGetItem(db, id) {
-  const item = await db.prepare('SELECT * FROM items WHERE id = ?').bind(id).first();
-  if (!item) return errorResponse('Item not found', 404);
-  return jsonResponse(item);
+async function handleGetItem(db, id, hhId) {
+  const item = await db.prepare('SELECT * FROM items WHERE id = ? AND household_id = ?').bind(id, hhId).first();
+  return item ? jsonResponse(item) : errorResponse('Not found', 404);
 }
 
-async function handlePostItem(request, db) {
+async function handlePostItem(request, db, hhId) {
   const body = await request.json();
-  const { name, barcode, category = 'Other', location = 'fridge', quantity = 1, unit = 'pcs', unit_cost = null, date_added, expiry_date, image_url } = body;
-  if (!name) return errorResponse('Name is required', 400);
-
-  // Use the exact date_added passed by frontend (which will now include local time), or fallback to current UTC time.
-  const final_date_added = date_added || new Date().toISOString();
+  if (!body.name) return errorResponse('Name required', 400);
 
   const result = await db.prepare(
-    'INSERT INTO items (name, barcode, category, location, quantity, initial_quantity, unit, unit_cost, date_added, expiry_date, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *'
-  ).bind(name, barcode || null, category, location, quantity, quantity, unit, unit_cost, final_date_added, expiry_date || null, image_url || null).first();
+    'INSERT INTO items (household_id, name, barcode, category, location, quantity, initial_quantity, unit, unit_cost, date_added, expiry_date, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *'
+  ).bind(hhId, body.name, body.barcode || null, body.category || 'Other', body.location || 'fridge', body.quantity || 1, body.quantity || 1, body.unit || 'pcs', body.unit_cost || null, body.date_added || new Date().toISOString(), body.expiry_date || null, body.image_url || null).first();
   
-  if (barcode) {
-    await db.prepare('INSERT OR REPLACE INTO user_products (barcode, name, category, image_url) VALUES (?, ?, ?, ?)').bind(barcode, name, category, image_url || null).run();
+  if (body.barcode) {
+    await db.prepare('INSERT OR REPLACE INTO user_products (barcode, household_id, name, category, image_url) VALUES (?, ?, ?, ?, ?)').bind(body.barcode, hhId, body.name, body.category || 'Other', body.image_url || null).run();
   }
-  
   return jsonResponse(result, 201);
 }
 
-async function handlePutItem(request, db, id) {
+async function handlePutItem(request, db, id, hhId) {
   const body = await request.json();
-  
-  const currentItem = await db.prepare('SELECT * FROM items WHERE id = ?').bind(id).first();
-  if (!currentItem) return errorResponse('Item not found', 404);
+  const currentItem = await db.prepare('SELECT * FROM items WHERE id = ? AND household_id = ?').bind(id, hhId).first();
+  if (!currentItem) return errorResponse('Not found', 404);
 
-  const updates = [];
-  const params = [];
-
+  const updates = []; const params = [];
   ['name', 'category', 'location', 'quantity', 'unit', 'unit_cost', 'expiry_date', 'image_url', 'barcode'].forEach(field => {
-    if (body[field] !== undefined) {
-      updates.push(`${field} = ?`);
-      params.push(body[field]);
-    }
+    if (body[field] !== undefined) { updates.push(field + ' = ?'); params.push(body[field]); }
   });
 
   if (updates.length === 0) return jsonResponse(currentItem);
-
-  params.push(id);
-  const updatedItem = await db.prepare(
-    `UPDATE items SET ${updates.join(', ')} WHERE id = ? RETURNING *`
-  ).bind(...params).first();
+  params.push(id, hhId);
+  const updatedItem = await db.prepare('UPDATE items SET ' + updates.join(', ') + ' WHERE id = ? AND household_id = ? RETURNING *').bind(...params).first();
 
   if (updatedItem.barcode) {
-    await db.prepare('INSERT OR REPLACE INTO user_products (barcode, name, category, image_url) VALUES (?, ?, ?, ?)').bind(updatedItem.barcode, updatedItem.name, updatedItem.category, updatedItem.image_url || null).run();
+    await db.prepare('INSERT OR REPLACE INTO user_products (barcode, household_id, name, category, image_url) VALUES (?, ?, ?, ?, ?)').bind(updatedItem.barcode, hhId, updatedItem.name, updatedItem.category, updatedItem.image_url || null).run();
   }
-
   return jsonResponse(updatedItem);
 }
 
-async function handleLogItem(request, db, id) {
+async function handleLogItem(request, db, id, hhId) {
   const body = await request.json();
-  const { action, amount } = body;
-  
-  if (!action || !['consumed', 'wasted'].includes(action)) {
-    return errorResponse('Valid action (consumed/wasted) is required', 400);
-  }
-  if (!amount || amount <= 0) {
-    return errorResponse('Amount must be greater than 0', 400);
-  }
+  if (!['consumed', 'wasted'].includes(body.action) || !body.amount || body.amount <= 0) return errorResponse('Invalid input', 400);
 
-  const item = await db.prepare('SELECT * FROM items WHERE id = ?').bind(id).first();
-  if (!item) return errorResponse('Item not found', 404);
+  const item = await db.prepare('SELECT * FROM items WHERE id = ? AND household_id = ?').bind(id, hhId).first();
+  if (!item) return errorResponse('Not found', 404);
 
-  const costValue = item.unit_cost !== null ? (amount * item.unit_cost) : null;
-  const percentage = item.initial_quantity > 0 ? (amount / item.initial_quantity) * 100 : 0;
-  const newQuantity = item.quantity - amount;
+  const costValue = item.unit_cost !== null ? (body.amount * item.unit_cost) : null;
+  const percentage = item.initial_quantity > 0 ? (body.amount / item.initial_quantity) * 100 : 0;
+  const newQty = item.quantity - body.amount;
 
-  // Insert log
-  await db.prepare(
-    'INSERT INTO item_log (item_name, category, location, reason, logged_quantity, unit, cost_value, percentage) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  ).bind(item.name, item.category, item.location, action, amount, item.unit, costValue, percentage).run();
+  await db.prepare('INSERT INTO item_log (household_id, item_name, category, location, reason, logged_quantity, unit, cost_value, percentage) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(hhId, item.name, item.category, item.location, body.action, body.amount, item.unit, costValue, percentage).run();
 
-  if (newQuantity <= 0.001) {
-    // Delete item if fully consumed/wasted
-    await db.prepare('DELETE FROM items WHERE id = ?').bind(id).run();
+  if (newQty <= 0.001) {
+    await db.prepare('DELETE FROM items WHERE id = ? AND household_id = ?').bind(id, hhId).run();
     return jsonResponse({ deleted: true });
   } else {
-    // Update quantity
-    const updated = await db.prepare('UPDATE items SET quantity = ? WHERE id = ? RETURNING *').bind(newQuantity, id).first();
+    const updated = await db.prepare('UPDATE items SET quantity = ? WHERE id = ? AND household_id = ? RETURNING *').bind(newQty, id, hhId).first();
     return jsonResponse({ deleted: false, item: updated });
   }
 }
 
-// Fallback legacy DELETE and Mistake Deletion
-async function handleDeleteItem(request, db, id) {
+async function handleDeleteItem(request, db, id, hhId) {
   const body = await request.json();
   const reason = body.reason || 'consumed';
   
-  const item = await db.prepare('SELECT * FROM items WHERE id = ?').bind(id).first();
-  if (!item) return errorResponse('Item not found', 404);
+  const item = await db.prepare('SELECT * FROM items WHERE id = ? AND household_id = ?').bind(id, hhId).first();
+  if (!item) return errorResponse('Not found', 404);
 
-  if (reason === 'mistake') {
-    // If it's a mistake, just delete it completely without logging to stats
-    await db.prepare('DELETE FROM items WHERE id = ?').bind(id).run();
-    return jsonResponse({ success: true, mistake: true });
+  if (reason !== 'mistake') {
+    const costValue = item.unit_cost !== null ? (item.quantity * item.unit_cost) : null;
+    const percentage = item.initial_quantity > 0 ? (item.quantity / item.initial_quantity) * 100 : 0;
+    await db.prepare('INSERT INTO item_log (household_id, item_name, category, location, reason, logged_quantity, unit, cost_value, percentage) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(hhId, item.name, item.category, item.location, reason, item.quantity, item.unit, costValue, percentage).run();
   }
 
-  const costValue = item.unit_cost !== null ? (item.quantity * item.unit_cost) : null;
-  const percentage = item.initial_quantity > 0 ? (item.quantity / item.initial_quantity) * 100 : 100;
-
-  await db.batch([
-    db.prepare('INSERT INTO item_log (item_name, category, location, reason, logged_quantity, unit, cost_value, percentage) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(item.name, item.category, item.location, reason, item.quantity, item.unit, costValue, percentage),
-    db.prepare('DELETE FROM items WHERE id = ?').bind(id)
-  ]);
-
+  await db.prepare('DELETE FROM items WHERE id = ? AND household_id = ?').bind(id, hhId).run();
   return jsonResponse({ success: true });
 }
 
-async function handleLookup(db, barcode) {
-  // 1. Check our custom local cache first!
-  const cached = await db.prepare('SELECT * FROM user_products WHERE barcode = ?').bind(barcode).first();
-  if (cached) {
-    return jsonResponse({
-      found: true,
-      name: cached.name,
-      category: cached.category,
-      image_url: cached.image_url,
-      source: 'local'
-    });
-  }
+async function handleLookup(db, barcode, hhId) {
+  const cached = await db.prepare('SELECT * FROM user_products WHERE barcode = ? AND household_id = ?').bind(barcode, hhId).first();
+  if (cached) return jsonResponse({ found: true, name: cached.name, category: cached.category, image_url: cached.image_url, source: 'local' });
 
-  // 2. Fallback to Open Food Facts
-  const url = `https://world.openfoodfacts.org/api/v2/product/${barcode}.json`;
-  
   try {
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'MyFridge/1.0 (https://github.com/myfridge)' }
-    });
-    
-    if (!res.ok) return jsonResponse({ found: false });
-    
-    const data = await res.json();
-    if (!data || data.status !== 1) return jsonResponse({ found: false });
-    
-    const p = data.product;
-    const rawCategories = p.categories_tags || [];
-    
-    let category = 'Other';
-    const catStr = rawCategories.join(' ').toLowerCase();
-    if (catStr.includes('dairy') || catStr.includes('milk') || catStr.includes('cheese')) category = 'Dairy';
-    else if (catStr.includes('meat') || catStr.includes('fish') || catStr.includes('poultry')) category = 'Meat & Fish';
-    else if (catStr.includes('fruit') || catStr.includes('vegetable')) category = 'Produce';
-    else if (catStr.includes('bread') || catStr.includes('cereal') || catStr.includes('bakery')) category = 'Bakery & Grains';
-    else if (catStr.includes('frozen')) category = 'Frozen';
-    else if (catStr.includes('canned')) category = 'Canned & Jarred';
-    else if (catStr.includes('beverage') || catStr.includes('drink')) category = 'Beverages';
-    else if (catStr.includes('snack') || catStr.includes('sweet') || catStr.includes('candy')) category = 'Snacks';
-    else if (catStr.includes('condiment') || catStr.includes('sauce') || catStr.includes('spice')) category = 'Condiments';
-    
-    return jsonResponse({
-      found: true,
-      name: p.product_name || p.product_name_en || 'Unknown',
-      category: category,
-      image_url: p.image_url || p.image_front_url || null
-    });
-  } catch (err) {
-    return jsonResponse({ found: false });
-  }
+    const response = await fetch('https://world.openfoodfacts.org/api/v2/product/' + barcode + '.json');
+    if (!response.ok) return jsonResponse({ found: false });
+    const data = await response.json();
+    if (data.status === 1 && data.product) {
+      return jsonResponse({ found: true, name: data.product.product_name_en || data.product.product_name || 'Unknown', category: 'Other', image_url: data.product.image_url || null, source: 'openfoodfacts' });
+    }
+  } catch (err) {}
+  return jsonResponse({ found: false });
 }
 
-async function handleStats(db) {
-  const summary = await db.prepare(
-    `SELECT reason, SUM(cost_value) as total_cost, SUM(percentage) as total_pct FROM item_log GROUP BY reason`
-  ).all();
+async function handleStats(db, hhId) {
+  const consumedRes = await db.prepare(`SELECT SUM(cost_value) as tc, SUM(logged_quantity) as tq FROM item_log WHERE household_id = ? AND reason = 'consumed'`).bind(hhId).first();
+  const wastedRes = await db.prepare(`SELECT SUM(cost_value) as tc, SUM(logged_quantity) as tq FROM item_log WHERE household_id = ? AND reason = 'wasted'`).bind(hhId).first();
+  const recentLogs = await db.prepare(`SELECT * FROM item_log WHERE household_id = ? ORDER BY removed_at DESC LIMIT 20`).bind(hhId).all();
+
+  const sixMonthsAgo = new Date(); sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5); sixMonthsAgo.setDate(1);
+  const monthRes = await db.prepare(`SELECT strftime('%Y-%m', removed_at) as month, reason, SUM(cost_value) as sum_cost, SUM(percentage) as sum_pct FROM item_log WHERE household_id = ? AND removed_at >= ? GROUP BY month, reason ORDER BY month ASC`).bind(hhId, sixMonthsAgo.toISOString().split('T')[0]).all();
   
-  let total_cost_consumed = 0;
-  let total_cost_wasted = 0;
-  let total_pct_consumed = 0;
-  let total_pct_wasted = 0;
-  
-  for (const row of summary.results) {
-    if (row.reason === 'consumed') {
-      total_cost_consumed = row.total_cost || 0;
-      total_pct_consumed = row.total_pct || 0;
-    }
-    if (row.reason === 'wasted') {
-      total_cost_wasted = row.total_cost || 0;
-      total_pct_wasted = row.total_pct || 0;
-    }
-  }
+  const catRes = await db.prepare(`SELECT category, SUM(percentage) as sum_pct FROM item_log WHERE household_id = ? AND reason = 'wasted' GROUP BY category ORDER BY sum_pct DESC`).bind(hhId).all();
 
-  const monthsData = await db.prepare(`
-    SELECT strftime('%Y-%m', removed_at) as month, reason, SUM(cost_value) as sum_cost, SUM(percentage) as sum_pct 
-    FROM item_log 
-    WHERE removed_at >= datetime('now', '-6 months')
-    GROUP BY month, reason
-    ORDER BY month ASC
-  `).all();
-
-  const monthMap = {};
-  for (const row of monthsData.results) {
-    if (!monthMap[row.month]) monthMap[row.month] = { month: row.month, consumed_cost: 0, wasted_cost: 0, consumed_pct: 0, wasted_pct: 0 };
-    if (row.reason === 'consumed') {
-      monthMap[row.month].consumed_cost = row.sum_cost || 0;
-      monthMap[row.month].consumed_pct = row.sum_pct || 0;
-    }
-    if (row.reason === 'wasted') {
-      monthMap[row.month].wasted_cost = row.sum_cost || 0;
-      monthMap[row.month].wasted_pct = row.sum_pct || 0;
-    }
-  }
-
-  const categoryData = await db.prepare(`
-    SELECT category, SUM(cost_value) as sum_cost, SUM(percentage) as sum_pct
-    FROM item_log
-    WHERE reason = 'wasted'
-    GROUP BY category
-    ORDER BY sum_pct DESC
-  `).all();
-
-  const recentLogsData = await db.prepare(`
-    SELECT item_name, category, reason, logged_quantity, unit, cost_value, percentage, removed_at
-    FROM item_log
-    ORDER BY removed_at DESC
-    LIMIT 100
-  `).all();
-
-  return jsonResponse({
-    total_cost_consumed,
-    total_cost_wasted,
-    total_pct_consumed,
-    total_pct_wasted,
-    by_month: Object.values(monthMap),
-    by_category: categoryData.results || [],
-    recent_logs: recentLogsData.results || []
-  });
+  return jsonResponse({ total_consumed_cost: consumedRes.tc||0, total_consumed_qty: consumedRes.tq||0, total_wasted_cost: wastedRes.tc||0, total_wasted_qty: wastedRes.tq||0, by_month: monthRes.results||[], category_waste: catRes.results||[], recent_logs: recentLogs.results||[] });
 }
 
-async function handleExpiring(db) {
-  const query = `
-    SELECT * FROM items 
-    WHERE expiry_date IS NOT NULL 
-    AND expiry_date <= date('now', '+7 days')
-    ORDER BY expiry_date ASC
-  `;
-  
-  const { results } = await db.prepare(query).all();
-  
-  const today = new Date();
-  today.setHours(0,0,0,0);
-  
-  const processed = results.map(item => {
-    const exp = new Date(item.expiry_date);
-    const diffTime = exp - today;
-    const days_remaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return { ...item, days_remaining };
-  });
-
-  return jsonResponse(processed);
+async function handleExpiring(db, hhId) {
+  const { results } = await db.prepare(`SELECT * FROM items WHERE household_id = ? AND expiry_date IS NOT NULL AND expiry_date <= date('now', '+7 days') ORDER BY expiry_date ASC`).bind(hhId).all();
+  const today = new Date(); today.setHours(0,0,0,0);
+  return jsonResponse((results || []).map(i => ({ ...i, days_remaining: Math.ceil((new Date(i.expiry_date) - today) / 86400000) })));
 }
 
-
-async function handleReport(request, db) {
-  const url = new URL(request.url);
-  const start = url.searchParams.get('start');
-  const end = url.searchParams.get('end');
-
-  const startDate = start ? `${start} 00:00:00` : '2000-01-01 00:00:00';
-  const endDate = end ? `${end} 23:59:59` : '2999-12-31 23:59:59';
-
-  const query = `SELECT item_name, unit, reason, SUM(logged_quantity) as total_qty, SUM(cost_value) as total_cost FROM item_log WHERE removed_at >= ? AND removed_at <= ? GROUP BY item_name, unit, reason ORDER BY item_name ASC`;
-  const { results } = await db.prepare(query).bind(startDate, endDate).all();
+async function handleReport(request, db, hhId) {
+  const u = new URL(request.url);
+  const start = u.searchParams.get('start'); const end = u.searchParams.get('end');
+  const { results } = await db.prepare(`SELECT item_name, unit, reason, SUM(logged_quantity) as total_qty, SUM(cost_value) as total_cost FROM item_log WHERE household_id = ? AND removed_at >= ? AND removed_at <= ? GROUP BY item_name, unit, reason ORDER BY item_name ASC`).bind(hhId, start ? start+' 00:00:00' : '2000-01-01 00:00:00', end ? end+' 23:59:59' : '2999-12-31 23:59:59').all();
   return jsonResponse({ report: results || [] });
 }
+
+function jsonResponse(data, status = 200) {
+  return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
+}
+function errorResponse(msg, status = 400) { return jsonResponse({ error: msg }, status); }
