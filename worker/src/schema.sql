@@ -35,3 +35,5 @@ CREATE INDEX idx_items_category ON items(category);
 CREATE INDEX idx_items_expiry_date ON items(expiry_date);
 CREATE INDEX idx_item_log_reason ON item_log(reason);
 CREATE INDEX idx_item_log_removed_at ON item_log(removed_at);
+
+CREATE TABLE IF NOT EXISTS user_products (barcode TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT, image_url TEXT);

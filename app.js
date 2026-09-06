@@ -1,4 +1,4 @@
-const API_BASE_URL = 'https://myfridge-api.zhuqingmo.workers.dev';
+const API_BASE_URL = 'https://mygrocery-api.zhuqingmo.workers.dev';
 
 const CATEGORIES = [
   { name: 'Dairy', emoji: '🥛', color: '#42A5F5' },
