@@ -11,7 +11,7 @@ window.fetch = async (...args) => {
   if (token && typeof resource === 'string' && resource.startsWith(API_BASE_URL)) {
     config.headers['Authorization'] = 'Basic ' + token;
   }
-  return originalFetch(resource, config);
+  return originalFetch.call(window, resource, config);
 };
 
 function checkAuth() {
@@ -40,7 +40,7 @@ function setupAuthEvents() {
     if (!name || !pass) return showToast('Name and password required', 'error');
 
     try {
-      const res = await originalFetch(API_BASE_URL + '/api/households/login', {
+      const res = await originalFetch.call(window, API_BASE_URL + '/api/households/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, password: pass })
@@ -64,7 +64,7 @@ function setupAuthEvents() {
     if (!name || !pass || !admin) return showToast('All fields required', 'error');
 
     try {
-      const res = await originalFetch(API_BASE_URL + '/api/households/create', {
+      const res = await originalFetch.call(window, API_BASE_URL + '/api/households/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, password: pass, admin_code: admin })
