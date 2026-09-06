@@ -504,6 +504,40 @@ async function renderStats() {
       catList.innerHTML = '<div class="empty-state" style="padding: 16px 0;"><p>No waste data yet</p></div>';
     }
   }
+
+  const historyList = document.getElementById('stats-history-list');
+  if (historyList) {
+    historyList.innerHTML = '';
+    if (stats.recent_logs && stats.recent_logs.length > 0) {
+      stats.recent_logs.forEach(log => {
+        const row = document.createElement('div');
+        row.style = 'display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border-color);';
+        
+        const icon = log.reason === 'consumed' ? '✅' : '🗑️';
+        const color = log.reason === 'consumed' ? 'var(--success-color)' : 'var(--danger-color)';
+        const costText = log.cost_value ? `<br><span style="font-weight:normal; font-size: 11px;">$${log.cost_value.toFixed(2)}</span>` : '';
+        const dateStr = formatDateTime(log.removed_at.replace(' ', 'T') + 'Z');
+        
+        row.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="font-size: 24px; min-width: 30px; text-align: center;">${icon}</div>
+            <div>
+              <div style="font-weight: bold; color: var(--text-main); font-size: 15px;">${escapeHtml(log.item_name)}</div>
+              <div style="font-size: 11px; color: var(--text-light); margin-top: 2px;">${dateStr}</div>
+            </div>
+          </div>
+          <div style="text-align: right;">
+            <div style="font-weight: bold; color: ${color}; font-size: 14px;">
+              ${log.logged_quantity} ${escapeHtml(log.unit || 'pcs')}${costText}
+            </div>
+          </div>
+        `;
+        historyList.appendChild(row);
+      });
+    } else {
+      historyList.innerHTML = '<div class="empty-state" style="padding: 16px 0;"><p>No history yet</p></div>';
+    }
+  }
 }
 
 function switchView(viewName) {

@@ -296,13 +296,21 @@ async function handleStats(db) {
     ORDER BY sum_pct DESC
   `).all();
 
+  const recentLogsData = await db.prepare(`
+    SELECT item_name, category, reason, logged_quantity, unit, cost_value, percentage, removed_at
+    FROM item_log
+    ORDER BY removed_at DESC
+    LIMIT 100
+  `).all();
+
   return jsonResponse({
     total_cost_consumed,
     total_cost_wasted,
     total_pct_consumed,
     total_pct_wasted,
     by_month: Object.values(monthMap),
-    by_category: categoryData.results || []
+    by_category: categoryData.results || [],
+    recent_logs: recentLogsData.results || []
   });
 }
 
