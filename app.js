@@ -251,6 +251,13 @@ function showToast(message, type = 'info') {
   }, 3000);
 }
 
+function formatDateTime(isoString) {
+  if (!isoString) return '';
+  const d = new Date(isoString);
+  // Example: "Sep 5, 2026, 7:35 PM"
+  return d.toLocaleString([], { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
 function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
@@ -297,6 +304,7 @@ function createItemCard(item) {
   card.dataset.id = item.id;
 
   const displayUnit = item.unit || 'pcs';
+  const addedText = formatDateTime(item.date_added);
 
   card.innerHTML = `
     <div class="item-info">
@@ -307,6 +315,9 @@ function createItemCard(item) {
       <div class="item-details">
         <span class="item-qty">Qty: ${item.quantity} ${displayUnit} · ${item.location}</span>
         <span class="item-expiry-text ${expiryInfo.status}">${expiryInfo.text}</span>
+      </div>
+      <div style="font-size: 11px; color: var(--text-light); margin-top: 6px;">
+        Added: ${addedText}
       </div>
     </div>
     <div class="item-actions">
@@ -508,6 +519,13 @@ async function openItemForm(itemId = null, prefillData = null) {
     document.getElementById('item-unit-cost').value = item.unit_cost !== null ? item.unit_cost : '';
     document.getElementById('item-expiry').value = item.expiry_date || '';
 
+    const addedDisplay = document.getElementById('item-added-display');
+    const addedTime = document.getElementById('item-added-time');
+    if (addedDisplay && addedTime && item.date_added) {
+      addedTime.textContent = formatDateTime(item.date_added);
+      addedDisplay.style.display = 'block';
+    }
+
     document.querySelectorAll('#form-location .segment').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.val === item.location);
     });
@@ -529,6 +547,11 @@ async function openItemForm(itemId = null, prefillData = null) {
     document.getElementById('item-unit').value = 'pcs';
     document.getElementById('item-unit-cost').value = '';
     document.getElementById('item-expiry').value = '';
+
+    const addedDisplay = document.getElementById('item-added-display');
+    if (addedDisplay) {
+      addedDisplay.style.display = 'none';
+    }
 
     document.querySelectorAll('#form-location .segment').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.val === state.currentLocation);
