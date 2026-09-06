@@ -54,6 +54,9 @@ export default {
       if (path === '/api/expiring' && request.method === 'GET') {
         return await handleExpiring(env.DB);
       }
+      if (path === '/api/report' && request.method === 'GET') {
+        return await handleReport(request, env.DB);
+      }
       
       return errorResponse('Not found', 404);
     } catch (e) {
@@ -335,4 +338,18 @@ async function handleExpiring(db) {
   });
 
   return jsonResponse(processed);
+}
+
+
+async function handleReport(request, db) {
+  const url = new URL(request.url);
+  const start = url.searchParams.get('start');
+  const end = url.searchParams.get('end');
+
+  const startDate = start ? ` 00:00:00` : '2000-01-01 00:00:00';
+  const endDate = end ? ` 23:59:59` : '2999-12-31 23:59:59';
+
+  const query = `SELECT item_name, unit, reason, SUM(logged_quantity) as total_qty, SUM(cost_value) as total_cost FROM item_log WHERE removed_at >= ? AND removed_at <= ? GROUP BY item_name, unit, reason ORDER BY item_name ASC`;
+  const { results } = await db.prepare(query).bind(startDate, endDate).all();
+  return jsonResponse({ report: results || [] });
 }

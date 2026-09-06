@@ -589,6 +589,72 @@ function openHistoryInfo(log) {
   modal.style.display = 'flex';
 }
 
+// Custom Report Features
+async function generateCustomReport() {
+  const start = document.getElementById('report-start').value;
+  const end = document.getElementById('report-end').value;
+  const resultsDiv = document.getElementById('report-results');
+  
+  resultsDiv.innerHTML = '<div class="empty-state"><p>Loading...</p></div>';
+  
+  try {
+    let url = `${API_BASE_URL}/api/report`;
+    if (start || end) {
+      const params = new URLSearchParams();
+      if (start) params.append('start', start);
+      if (end) params.append('end', end);
+      url += '?' + params.toString();
+    }
+    
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to fetch report');
+    
+    const data = await res.json();
+    const rows = data.report || [];
+    
+    if (rows.length === 0) {
+      resultsDiv.innerHTML = '<div class="empty-state"><p>No data found for this period.</p></div>';
+      return;
+    }
+    
+    const items = {};
+    rows.forEach(row => {
+      // Group by name + unit
+      const key = `${row.item_name}_${row.unit}`;
+      if (!items[key]) {
+        items[key] = { name: row.item_name, unit: row.unit || 'pcs', consumed_qty: 0, consumed_cost: 0, wasted_qty: 0, wasted_cost: 0 };
+      }
+      if (row.reason === 'consumed') {
+        items[key].consumed_qty += row.total_qty;
+        items[key].consumed_cost += row.total_cost || 0;
+      }
+      if (row.reason === 'wasted') {
+        items[key].wasted_qty += row.total_qty;
+        items[key].wasted_cost += row.total_cost || 0;
+      }
+    });
+    
+    let html = '';
+    Object.values(items).forEach(item => {
+      let consumedStr = item.consumed_qty > 0 ? `<div style="color:var(--success-color);">✅ Consumed: <strong>${item.consumed_qty} ${item.unit}</strong>${item.consumed_cost > 0 ? ` ($${item.consumed_cost.toFixed(2)})` : ''}</div>` : '';
+      let wastedStr = item.wasted_qty > 0 ? `<div style="color:var(--danger-color);">🗑️ Wasted: <strong>${item.wasted_qty} ${item.unit}</strong>${item.wasted_cost > 0 ? ` ($${item.wasted_cost.toFixed(2)})` : ''}</div>` : '';
+      
+      html += `
+        <div style="border-bottom: 1px solid var(--border-color); padding: 12px 0;">
+          <div style="font-weight: bold; font-size: 15px; margin-bottom: 4px;">${escapeHtml(item.name)}</div>
+          ${consumedStr}
+          ${wastedStr}
+        </div>
+      `;
+    });
+    
+    resultsDiv.innerHTML = html;
+    
+  } catch (err) {
+    resultsDiv.innerHTML = '<div class="empty-state"><p style="color:red;">Error loading report.</p></div>';
+  }
+}
+
 function switchView(viewName) {
   state.currentView = viewName;
 
@@ -789,6 +855,35 @@ function setupEvents() {
   if (closeHistoryBtn) {
     closeHistoryBtn.addEventListener('click', () => {
       document.getElementById('modal-history-info').style.display = 'none';
+    });
+  }
+  
+  // Custom Report features
+  const openReportBtn = document.getElementById('btn-open-report');
+  if (openReportBtn) {
+    openReportBtn.addEventListener('click', () => {
+      document.getElementById('report-results').innerHTML = '';
+      
+      // Auto fill dates: Default start to 30 days ago, end to today
+      const today = new Date();
+      const pastMonth = new Date(today.getTime() - (30 * 24 * 60 * 60 * 1000));
+      document.getElementById('report-start').value = pastMonth.toISOString().split('T')[0];
+      document.getElementById('report-end').value = today.toISOString().split('T')[0];
+      
+      document.getElementById('modal-report').style.display = 'flex';
+      generateCustomReport();
+    });
+  }
+  
+  const generateReportBtn = document.getElementById('btn-generate-report');
+  if (generateReportBtn) {
+    generateReportBtn.addEventListener('click', generateCustomReport);
+  }
+  
+  const closeReportBtn = document.getElementById('close-report');
+  if (closeReportBtn) {
+    closeReportBtn.addEventListener('click', () => {
+      document.getElementById('modal-report').style.display = 'none';
     });
   }
 
