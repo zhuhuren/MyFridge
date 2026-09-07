@@ -30,13 +30,16 @@ function checkAuth() {
 
 function setupAuthEvents() {
   document.getElementById('toggle-pass').addEventListener('click', (e) => {
+    e.preventDefault();
     const passInput = document.getElementById('auth-pass');
-    if (passInput.type === 'password') {
-      passInput.type = 'text';
-      e.target.textContent = '🙈';
+    const toggleBtn = document.getElementById('toggle-pass');
+    
+    if (passInput.getAttribute('type') === 'password') {
+      passInput.setAttribute('type', 'text');
+      toggleBtn.textContent = '🙈';
     } else {
-      passInput.type = 'password';
-      e.target.textContent = '👁️';
+      passInput.setAttribute('type', 'password');
+      toggleBtn.textContent = '👁️';
     }
   });
 
@@ -1199,16 +1202,16 @@ async function renderGroceryList() {
         
         const cat = CATEGORIES.find(c => c.name === item.category) || CATEGORIES[CATEGORIES.length - 1];
         
-        card.innerHTML = 
-          <div style="display: flex; align-items: center; gap: 12px; cursor: pointer; flex: 1;" onclick="toggleGroceryItem()">
-            <div style="font-size: 24px;"></div>
+        card.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 12px; cursor: pointer; flex: 1;" onclick="toggleGroceryItem(${item.id})">
+            <div style="font-size: 24px;">${item.is_purchased ? '✅' : '⬜'}</div>
             <div>
-              <div class="item-name"></div>
-              <div class="item-category" style="background-color: 20; color: "> </div>
+              <div class="item-name">${item.name}</div>
+              <div class="item-category" style="background-color: ${cat.color}20; color: ${cat.color}">${cat.emoji} ${cat.name}</div>
             </div>
           </div>
-          <button class="btn btn-outline" style="border:none; color: var(--danger);" onclick="deleteGroceryItem()">???</button>
-        ;
+          <button class="btn btn-outline" style="border:none; color: var(--danger);" onclick="deleteGroceryItem(${item.id})">🗑️</button>
+        `;
         container.appendChild(card);
       });
     }
