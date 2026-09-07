@@ -35,9 +35,28 @@
     <div id="main-app" style="display: none;">
     <!-- Header -->
     <header id="main-header">
-      <h1 class="title">MyGrocery</h1>
+      <h1 class="title" id="header-title" style="cursor: pointer;">MyGrocery</h1>
       <div id="header-location">Fridge</div>
     </header>
+
+  <!-- MODAL: Account Settings -->
+  <div id="modal-account" class="modal" style="display:none">
+    <div class="modal-content centered-dialog" style="max-width: 340px;">
+      <h2 style="margin-top: 0; text-align: center;">⚙️ Account</h2>
+      <div id="account-household-name" style="text-align: center; font-size: 18px; font-weight: bold; margin-bottom: 20px; color: var(--primary);"></div>
+      
+      <div id="change-password-section" style="margin-bottom: 16px;">
+        <h3 style="margin: 0 0 8px 0; font-size: 14px;">Change Password</h3>
+        <input type="password" id="new-password" placeholder="New Password" class="form-input" style="margin-bottom: 8px;">
+        <input type="password" id="confirm-password" placeholder="Confirm Password" class="form-input" style="margin-bottom: 8px;">
+        <button id="btn-change-pass" class="btn btn-primary" style="width: 100%;">Update Password</button>
+      </div>
+
+      <hr style="border: none; border-top: 1px solid #eee; margin: 16px 0;">
+      <button id="btn-logout" class="btn btn-outline" style="width: 100%; color: var(--danger); border-color: var(--danger);">Logout</button>
+      <button id="btn-close-account" class="btn btn-text" style="width: 100%; margin-top: 8px;">Cancel</button>
+    </div>
+  </div>
     
     <!-- Main Content Area -->
     <main id="main-content">
@@ -186,10 +205,6 @@
       <button class="nav-btn" data-view="stats">
         <span class="nav-icon">📊</span>
         <span class="nav-label">Stats</span>
-      </button>
-      <button class="nav-btn" id="btn-logout">
-        <span class="nav-icon">🚪</span>
-        <span class="nav-label">Logout</span>
       </button>
     </nav>
   </div>

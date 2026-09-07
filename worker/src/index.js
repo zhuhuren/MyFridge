@@ -48,6 +48,7 @@ export default {
       if (path === '/api/grocery' && request.method === 'POST') return await handlePostGrocery(request, env.DB, hhId);
       if (path.startsWith('/api/grocery/') && request.method === 'PUT') return await handlePutGrocery(env.DB, path.split('/')[3], hhId);
       if (path.startsWith('/api/grocery/') && request.method === 'DELETE') return await handleDeleteGrocery(env.DB, path.split('/')[3], hhId);
+      if (path === '/api/households/password' && request.method === 'PUT') return await handleChangePassword(request, env.DB, hhId);
       
       return errorResponse('Not found', 404);
     } catch (e) {
@@ -250,6 +251,13 @@ async function handlePutGrocery(db, id, hhId) {
 
 async function handleDeleteGrocery(db, id, hhId) {
   await db.prepare('DELETE FROM grocery_list WHERE id = ? AND household_id = ?').bind(id, hhId).run();
+  return jsonResponse({ success: true });
+}
+
+async function handleChangePassword(request, db, hhId) {
+  const body = await request.json();
+  if (!body.new_password || body.new_password.length < 4) return errorResponse('Password must be at least 4 characters', 400);
+  await db.prepare('UPDATE households SET password_hash = ? WHERE id = ?').bind(body.new_password, hhId).run();
   return jsonResponse({ success: true });
 }
 

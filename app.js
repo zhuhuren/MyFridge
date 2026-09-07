@@ -43,10 +43,51 @@ function setupAuthEvents() {
     }
   });
 
+  document.getElementById('header-title').addEventListener('click', () => {
+    const name = localStorage.getItem('mygrocery_name') || 'Household';
+    document.getElementById('account-household-name').textContent = name;
+    document.getElementById('new-password').value = '';
+    document.getElementById('confirm-password').value = '';
+    document.getElementById('modal-account').style.display = 'flex';
+  });
+
+  document.getElementById('btn-close-account').addEventListener('click', () => {
+    document.getElementById('modal-account').style.display = 'none';
+  });
+
   document.getElementById('btn-logout').addEventListener('click', () => {
     localStorage.removeItem('mygrocery_token');
     localStorage.removeItem('mygrocery_name');
+    document.getElementById('modal-account').style.display = 'none';
     checkAuth();
+  });
+
+  document.getElementById('btn-change-pass').addEventListener('click', async () => {
+    const newPass = document.getElementById('new-password').value.trim();
+    const confirmPass = document.getElementById('confirm-password').value.trim();
+    if (!newPass) return showToast('Please enter a new password', 'error');
+    if (newPass !== confirmPass) return showToast('Passwords do not match', 'error');
+    if (newPass.length < 4) return showToast('Password must be at least 4 characters', 'error');
+
+    try {
+      const res = await window.fetch(API_BASE_URL + '/api/households/password', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_password: newPass })
+      });
+      if (!res.ok) throw new Error('Failed to change password');
+
+      // Update stored token with new password
+      const oldToken = localStorage.getItem('mygrocery_token');
+      const householdId = atob(oldToken).split(':')[0];
+      const newToken = btoa(householdId + ':' + newPass);
+      localStorage.setItem('mygrocery_token', newToken);
+
+      document.getElementById('modal-account').style.display = 'none';
+      showToast('Password updated!');
+    } catch (e) {
+      showToast(e.message, 'error');
+    }
   });
   document.getElementById('btn-login').addEventListener('click', async () => {
     const name = document.getElementById('auth-name').value.trim();
