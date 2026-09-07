@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mygrocery-v23';
+const CACHE_NAME = 'mygrocery-v24';
 const ASSETS = [
   '/MyFridge/',
   '/MyFridge/index.html',

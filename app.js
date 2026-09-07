@@ -46,6 +46,7 @@ function setupAuthEvents() {
   document.getElementById('header-title').addEventListener('click', () => {
     const name = localStorage.getItem('mygrocery_name') || 'Household';
     document.getElementById('account-household-name').textContent = name;
+    document.getElementById('old-password').value = '';
     document.getElementById('new-password').value = '';
     document.getElementById('confirm-password').value = '';
     document.getElementById('modal-account').style.display = 'flex';
@@ -63,11 +64,18 @@ function setupAuthEvents() {
   });
 
   document.getElementById('btn-change-pass').addEventListener('click', async () => {
+    const oldPass = document.getElementById('old-password').value.trim();
     const newPass = document.getElementById('new-password').value.trim();
     const confirmPass = document.getElementById('confirm-password').value.trim();
+    if (!oldPass) return showToast('Please enter your current password', 'error');
     if (!newPass) return showToast('Please enter a new password', 'error');
     if (newPass !== confirmPass) return showToast('Passwords do not match', 'error');
     if (newPass.length < 4) return showToast('Password must be at least 4 characters', 'error');
+
+    // Verify old password matches what's stored
+    const token = localStorage.getItem('mygrocery_token');
+    const currentPass = atob(token).split(':')[1];
+    if (oldPass !== currentPass) return showToast('Current password is incorrect', 'error');
 
     try {
       const res = await window.fetch(API_BASE_URL + '/api/households/password', {
