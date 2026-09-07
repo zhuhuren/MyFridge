@@ -29,6 +29,17 @@ function checkAuth() {
 }
 
 function setupAuthEvents() {
+  document.getElementById('toggle-pass').addEventListener('click', (e) => {
+    const passInput = document.getElementById('auth-pass');
+    if (passInput.type === 'password') {
+      passInput.type = 'text';
+      e.target.textContent = '🙈';
+    } else {
+      passInput.type = 'password';
+      e.target.textContent = '👁️';
+    }
+  });
+
   document.getElementById('btn-logout').addEventListener('click', () => {
     localStorage.removeItem('mygrocery_token');
     localStorage.removeItem('mygrocery_name');
