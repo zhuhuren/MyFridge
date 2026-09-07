@@ -80,7 +80,7 @@ body {
   flex: 1;
   overflow-y: auto;
   padding-top: var(--header-height);
-  padding-bottom: var(--nav-height);
+  padding-bottom: calc(var(--nav-height) + 20px);
 }
 
 /* Sticky Controls */
