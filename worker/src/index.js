@@ -44,6 +44,10 @@ export default {
       if (path === '/api/stats' && request.method === 'GET') return await handleStats(env.DB, hhId);
       if (path === '/api/expiring' && request.method === 'GET') return await handleExpiring(env.DB, hhId);
       if (path === '/api/report' && request.method === 'GET') return await handleReport(request, env.DB, hhId);
+      if (path === '/api/grocery' && request.method === 'GET') return await handleGetGrocery(env.DB, hhId);
+      if (path === '/api/grocery' && request.method === 'POST') return await handlePostGrocery(request, env.DB, hhId);
+      if (path.startsWith('/api/grocery/') && request.method === 'PUT') return await handlePutGrocery(env.DB, path.split('/')[3], hhId);
+      if (path.startsWith('/api/grocery/') && request.method === 'DELETE') return await handleDeleteGrocery(env.DB, path.split('/')[3], hhId);
       
       return errorResponse('Not found', 404);
     } catch (e) {
@@ -149,6 +153,9 @@ async function handleLogItem(request, db, id, hhId) {
   await db.prepare('INSERT INTO item_log (household_id, item_name, category, location, reason, logged_quantity, unit, cost_value, percentage) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(hhId, item.name, item.category, item.location, body.action, body.amount, item.unit, costValue, percentage).run();
 
   if (newQty <= 0.001) {
+    if (body.action === 'consumed') {
+      await db.prepare('INSERT INTO grocery_list (household_id, name, category) VALUES (?, ?, ?)').bind(hhId, item.name, item.category).run();
+    }
     await db.prepare('DELETE FROM items WHERE id = ? AND household_id = ?').bind(id, hhId).run();
     return jsonResponse({ deleted: true });
   } else {
@@ -168,6 +175,10 @@ async function handleDeleteItem(request, db, id, hhId) {
     const costValue = item.unit_cost !== null ? (item.quantity * item.unit_cost) : null;
     const percentage = item.initial_quantity > 0 ? (item.quantity / item.initial_quantity) * 100 : 0;
     await db.prepare('INSERT INTO item_log (household_id, item_name, category, location, reason, logged_quantity, unit, cost_value, percentage) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(hhId, item.name, item.category, item.location, reason, item.quantity, item.unit, costValue, percentage).run();
+  }
+
+  if (reason === 'consumed') {
+    await db.prepare('INSERT INTO grocery_list (household_id, name, category) VALUES (?, ?, ?)').bind(hhId, item.name, item.category).run();
   }
 
   await db.prepare('DELETE FROM items WHERE id = ? AND household_id = ?').bind(id, hhId).run();
@@ -213,6 +224,33 @@ async function handleReport(request, db, hhId) {
   const start = u.searchParams.get('start'); const end = u.searchParams.get('end');
   const { results } = await db.prepare(`SELECT item_name, unit, reason, SUM(logged_quantity) as total_qty, SUM(cost_value) as total_cost FROM item_log WHERE household_id = ? AND removed_at >= ? AND removed_at <= ? GROUP BY item_name, unit, reason ORDER BY item_name ASC`).bind(hhId, start ? start+' 00:00:00' : '2000-01-01 00:00:00', end ? end+' 23:59:59' : '2999-12-31 23:59:59').all();
   return jsonResponse({ report: results || [] });
+}
+
+async function handleGetGrocery(db, hhId) {
+  const { results } = await db.prepare(`SELECT * FROM grocery_list WHERE household_id = ? ORDER BY is_purchased ASC, added_at DESC`).bind(hhId).all();
+  return jsonResponse(results || []);
+}
+
+async function handlePostGrocery(request, db, hhId) {
+  const body = await request.json();
+  if (!body.name) return errorResponse('Name required', 400);
+  const result = await db.prepare(
+    'INSERT INTO grocery_list (household_id, name, category) VALUES (?, ?, ?) RETURNING *'
+  ).bind(hhId, body.name, body.category || 'Other').first();
+  return jsonResponse(result, 201);
+}
+
+async function handlePutGrocery(db, id, hhId) {
+  const item = await db.prepare('SELECT is_purchased FROM grocery_list WHERE id = ? AND household_id = ?').bind(id, hhId).first();
+  if (!item) return errorResponse('Not found', 404);
+  const newStatus = item.is_purchased ? 0 : 1;
+  const updated = await db.prepare('UPDATE grocery_list SET is_purchased = ? WHERE id = ? AND household_id = ? RETURNING *').bind(newStatus, id, hhId).first();
+  return jsonResponse(updated);
+}
+
+async function handleDeleteGrocery(db, id, hhId) {
+  await db.prepare('DELETE FROM grocery_list WHERE id = ? AND household_id = ?').bind(id, hhId).run();
+  return jsonResponse({ success: true });
 }
 
 function jsonResponse(data, status = 200) {

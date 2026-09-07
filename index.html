@@ -77,6 +77,18 @@
         <button class="fab" id="fab-add">+</button>
       </div>
       
+      <!-- VIEW: Grocery -->
+      <div id="view-grocery" style="display:none">
+        <div class="search-sort-container" style="margin-bottom: 12px; display: flex; gap: 8px;">
+          <input type="text" id="grocery-input" placeholder="Add to grocery list..." class="form-input" style="margin: 0; flex: 1;">
+          <button id="btn-add-grocery" class="btn btn-primary" style="padding: 0 16px;">Add</button>
+        </div>
+        <div id="grocery-list" class="items-grid"></div>
+        <div id="grocery-empty" class="empty-state" style="display:none;">
+          <p>Grocery list is empty.</p>
+        </div>
+      </div>
+
       <!-- VIEW: Expiring -->
       <div id="view-expiring" style="display:none">
         <div id="expiring-expired" class="expiring-section">
@@ -163,6 +175,10 @@
       <button class="nav-btn" data-view="expiring">
         <span class="nav-icon">⏰</span>
         <span class="nav-label">Expiring</span>
+      </button>
+      <button class="nav-btn" data-view="grocery">
+        <span class="nav-icon">🛒</span>
+        <span class="nav-label">Grocery</span>
       </button>
       <button class="nav-btn" data-view="stats">
         <span class="nav-icon">📊</span>
